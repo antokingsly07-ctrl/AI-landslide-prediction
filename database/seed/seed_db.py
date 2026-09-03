@@ -1,0 +1,413 @@
+"""Seed realistic demo data for North-Eastern Indian states/districts.
+
+All data is clearly simulated for demonstration purposes only. It is never
+presented as live government data in the UI.
+"""
+import json
+import random
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.security import hash_password
+from app.db.session import SessionLocal
+from app.models.environment import (
+    LandslideHistory,
+    RainfallRecord,
+    Sensor,
+    SensorReading,
+    SoilMoistureRecord,
+    TerrainData,
+    WeatherRecord,
+)
+from app.models.geo import District, Infrastructure, Role, State, User, Village
+from app.models.risk import (
+    Alert,
+    EmergencyResponse,
+    FieldReport,
+    Incident,
+    RiskPrediction,
+    RiskZone,
+    Road,
+)
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+# North East states with real districts (with approx centroids)
+STATES = [
+    {"code": "AS", "name": "Assam", "districts": [
+        {"name": "Kamrup Metropolitan", "lat": 26.14, "lon": 91.73, "pop": 1253938},
+        {"name": "Dima Hasao", "lat": 25.55, "lon": 93.10, "pop": 213529},
+        {"name": "Cachar", "lat": 24.81, "lon": 92.80, "pop": 1733617},
+        {"name": "Karimganj", "lat": 24.87, "lon": 92.36, "pop": 1228686},
+    ]},
+    {"code": "ML", "name": "Meghalaya", "districts": [
+        {"name": "East Khasi Hills", "lat": 25.57, "lon": 91.88, "pop": 825922},
+        {"name": "West Garo Hills", "lat": 25.52, "lon": 90.22, "pop": 643291},
+        {"name": "Ri Bhoi", "lat": 25.85, "lon": 91.87, "pop": 258840},
+    ]},
+    {"code": "MZ", "name": "Mizoram", "districts": [
+        {"name": "Aizawl", "lat": 23.73, "lon": 92.72, "pop": 404821},
+        {"name": "Lunglei", "lat": 22.88, "lon": 92.74, "pop": 161428},
+    ]},
+    {"code": "TR", "name": "Tripura", "districts": [
+        {"name": "Dhalai", "lat": 23.83, "lon": 91.93, "pop": 378230},
+        {"name": "Gomati", "lat": 23.53, "lon": 91.48, "pop": 436866},
+    ]},
+    {"code": "NL", "name": "Nagaland", "districts": [
+        {"name": "Kohima", "lat": 25.67, "lon": 94.11, "pop": 267988},
+        {"name": "Dimapur", "lat": 25.91, "lon": 93.73, "pop": 379769},
+    ]},
+    {"code": "MN", "name": "Manipur", "districts": [
+        {"name": "Churachandpur", "lat": 24.33, "lon": 93.69, "pop": 271843},
+        {"name": "Imphal West", "lat": 24.80, "lon": 93.94, "pop": 517992},
+    ]},
+]
+
+ROLES = [
+    ("super_admin", "Platform administrator with full access"),
+    ("district_admin", "District-level administration"),
+    ("disaster_mgmt", "Disaster management authority"),
+    ("field_official", "Field officials and reporters"),
+    ("citizen", "Public users"),
+]
+
+SANDBOX_USER_CREDENTIALS = {
+    "super_admin@landslide.demo": ("Super Admin", "admin123", "super_admin", None),
+    "district@landslide.demo": ("District Admin", "district123", "district_admin", "Aizawl"),
+    "disaster@landslide.demo": ("Disaster Mgmt", "disaster123", "disaster_mgmt", None),
+    "field@landslide.demo": ("Field Official", "field123", "field_official", "East Khasi Hills"),
+    "citizen@landslide.demo": ("Citizen", "citizen123", "citizen", None),
+}
+
+VILLAGE_NAMES = [
+    "Zokhawsang", "Mawphlang", "Cherrapunjee", "Sohra", "Laitmawsiang",
+    "Umiam", "Shillong Peak", "Laitlyngkot", "Mawsynram", "Pynursla",
+    "Dawki", "Amlaren", "Champhai", "Lunglei Town", "Serchhip",
+    "Thenzawl", "Hmunsang", "Kolasib", "Chamring", "Vairengte",
+]
+
+ROAD_SUFFIXES = ["National Highway", "State Highway", "District Road", "Village Road", "Border Road"]
+
+INFRA_TYPES = ["hospital", "school", "emergency_service", "bridge", "power_station"]
+
+
+def seed(db: Session):
+    # Roles
+    roles = {}
+    for name, desc in ROLES:
+        obj = db.scalar(select(Role).where(Role.name == name))
+        if not obj:
+            obj = Role(name=name, description=desc)
+            db.add(obj)
+        roles[name] = obj
+    db.commit()
+
+    # States + districts + villages + roads + infra + sensors
+    state_objs = {}
+    district_objs = {}
+    all_villages = []
+    all_roads = []
+    rng = random.Random(42)
+
+    for st in STATES:
+        so = db.scalar(select(State).where(State.code == st["code"]))
+        if not so:
+            so = State(code=st["code"], name=st["name"])
+            db.add(so)
+            db.flush()
+        state_objs[st["code"]] = so
+        for d in st["districts"]:
+            di = db.scalar(select(District).where(District.code == f"{st['code']}-{d['name']}"))
+            if not di:
+                di = District(
+                    code=f"{st['code']}-{d['name']}",
+                    name=d["name"],
+                    state_id=so.id,
+                    latitude=d["lat"],
+                    longitude=d["lon"],
+                    population=d["pop"],
+                    risk_score=round(rng.uniform(20, 85), 1),
+                )
+                db.add(di)
+                db.flush()
+            district_objs[(st["code"], d["name"])] = di
+
+            # villages
+            for i in range(6):
+                vname = rng.choice(VILLAGE_NAMES) + f" {i+1} {d['name']}"
+                v = db.scalar(select(Village).where(Village.name == vname))
+                if not v:
+                    v = Village(
+                        name=vname,
+                        district_id=di.id,
+                        latitude=round(d["lat"] + rng.uniform(-0.15, 0.15), 5),
+                        longitude=round(d["lon"] + rng.uniform(-0.15, 0.15), 5),
+                        population=rng.randint(500, 20000),
+                        risk_score=round(rng.uniform(20, 90), 1),
+                    )
+                    db.add(v)
+                    db.flush()
+                all_villages.append(v)
+
+            # roads
+            for j in range(4):
+                rname = f"{d['name']} {ROAD_SUFFIXES[rng.randrange(len(ROAD_SUFFIXES))]} {j+1}"
+                r = db.scalar(select(Road).where(Road.name == rname))
+                if not r:
+                    r = Road(
+                        name=rname,
+                        road_type=rng.choice(["highway", "state", "district", "village"]),
+                        district_id=di.id,
+                        latitude=round(d["lat"] + rng.uniform(-0.2, 0.2), 5),
+                        longitude=round(d["lon"] + rng.uniform(-0.2, 0.2), 5),
+                        status=rng.choice(["open", "open", "open", "restricted", "blocked"]),
+                        population_served=rng.randint(1000, 200000),
+                        alternative_route=rng.random() > 0.3,
+                        priority_score=round(rng.uniform(0, 100), 1),
+                    )
+                    db.add(r)
+                    db.flush()
+                all_roads.append(r)
+
+            # infrastructure
+            for k in range(3):
+                it = INFRA_TYPES[rng.randrange(len(INFRA_TYPES))]
+                iname = f"{d['name']} {it.title()} {k+1}"
+                if not db.scalar(select(Infrastructure).where(Infrastructure.name == iname)):
+                    db.add(Infrastructure(
+                        name=iname,
+                        infra_type=it,
+                        district_id=di.id,
+                        village_id=rng.choice(all_villages).id if all_villages else None,
+                        latitude=round(d["lat"] + rng.uniform(-0.1, 0.1), 5),
+                        longitude=round(d["lon"] + rng.uniform(-0.1, 0.1), 5),
+                        importance=rng.randint(2, 5),
+                        population_served=rng.randint(500, 50000),
+                    ))
+
+            # sensors
+            for stype in ["soil_moisture", "rain_gauge", "tilt", "ground_movement", "temperature"]:
+                sname = f"{d['name']} {stype.replace('_', ' ').title()} Sensor"
+                if not db.scalar(select(Sensor).where(Sensor.name == sname)):
+                    db.add(Sensor(
+                        name=sname,
+                        sensor_type=stype,
+                        district_id=di.id,
+                        latitude=round(d["lat"] + rng.uniform(-0.12, 0.12), 5),
+                        longitude=round(d["lon"] + rng.uniform(-0.12, 0.12), 5),
+                        status="online",
+                        api_token=f"tok_{uuid.uuid4().hex[:16]}",
+                    ))
+    db.commit()
+
+    # Demo users
+    users = {}
+    for email, (fname, pw, role, dist) in SANDBOX_USER_CREDENTIALS.items():
+        u = db.scalar(select(User).where(User.email == email))
+        did = None
+        if dist:
+            for (code, dname), dobj in district_objs.items():
+                if dname == dist:
+                    did = dobj.id
+                    break
+        if not u:
+            u = User(
+                email=email,
+                full_name=fname,
+                hashed_password=hash_password(pw),
+                role_id=roles[role].id,
+                district_id=did,
+                phone=f"+91 9{rng.randint(10000000, 99999999)}",
+                preferred_language=rng.choice(["en", "hi", "as", "bn"]),
+            )
+            db.add(u)
+        users[role] = u
+    db.commit()
+
+    # Timeseries environmental data over the last 7 days
+    now = utcnow()
+    all_districts = list(district_objs.values())
+    if not db.scalar(select(RainfallRecord).limit(1)):
+        for day in range(7, -1, -1):
+            for di in all_districts:
+                base_rain = rng.uniform(5, 60)
+                rain24 = round(base_rain + rng.uniform(0, 150), 2)
+                rain1 = round(base_rain * rng.uniform(0.5, 1.5), 2)
+                db.add(RainfallRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    amount_mm=rain24, intensity=rain1,
+                    rain_1h=rain1, rain_6h=round(rain1 * rng.uniform(3, 6), 2),
+                    rain_24h=rain24, rain_3d=round(rain24 * rng.uniform(2, 3.5), 2),
+                    rain_7d=round(rain24 * rng.uniform(4, 6), 2),
+                    observed_at=now - timedelta(days=day), is_demo=True,
+                ))
+                db.add(SoilMoistureRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    moisture_percent=round(rng.uniform(35, 96), 1),
+                    observed_at=now - timedelta(days=day),
+                ))
+                db.add(WeatherRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    temperature_c=round(rng.uniform(18, 30), 1),
+                    humidity_percent=round(rng.uniform(65, 98), 1),
+                    precipitation_mm=rain24, forecast="Monsoon showers",
+                ))
+                db.add(TerrainData(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    slope_deg=round(rng.uniform(10, 45), 1),
+                    elevation_m=round(rng.uniform(200, 1800), 1),
+                    land_cover=rng.choice(["forest", "shrubland", "cropland"]),
+                    distance_to_roads_m=round(rng.uniform(20, 500), 1),
+                ))
+        db.commit()
+
+    # Sensor readings (latest)
+    sensors = db.scalars(select(Sensor)).all()
+    if not db.scalar(select(SensorReading).limit(1)):
+        for s in sensors:
+            n = rng.randint(3, 8)
+            for i in range(n):
+                val = {"soil_moisture": (40, 15), "rain_gauge": (25, 20), "tilt": (2, 3),
+                       "ground_movement": (5, 8), "temperature": (24, 5)}.get(s.sensor_type, (0, 1))
+                db.add(SensorReading(
+                    sensor_id=s.id, reading_type=s.sensor_type,
+                    value=round(max(0, rng.gauss(val[0], val[1])), 2),
+                    unit={"soil_moisture": "%", "rain_gauge": "mm", "tilt": "deg",
+                          "ground_movement": "mm", "temperature": "C"}.get(s.sensor_type, ""),
+                    read_at=now - timedelta(hours=i),
+                ))
+        db.commit()
+
+    # Historical landslides
+    if not db.scalar(select(LandslideHistory).limit(1)):
+        for _ in range(40):
+            di = rng.choice(all_districts)
+            db.add(LandslideHistory(
+                latitude=di.latitude + rng.uniform(-0.1, 0.1),
+                longitude=di.longitude + rng.uniform(-0.1, 0.1),
+                district_id=di.id,
+                severity=rng.randint(1, 5),
+                cause=rng.choice(["rainfall", "rainfall", "earthquake", "human_activity"]),
+                year=rng.randint(1998, 2025),
+                occurred_on=now - timedelta(days=rng.randint(30, 9000)),
+            ))
+        db.commit()
+
+    # Risk zones
+    if not db.scalar(select(RiskZone).limit(1)):
+        for v in all_villages[:60]:
+            score = round(rng.uniform(15, 95), 1)
+            db.add(RiskZone(
+                name=v.name + " Zone",
+                risk_score=score,
+                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61
+                            else "MODERATE" if score >= 41 else "LOW" if score >= 21 else "VERY_LOW"),
+                latitude=v.latitude, longitude=v.longitude,
+                district_id=v.district_id, village_id=v.id,
+                population=v.population, area_km2=round(rng.uniform(0.5, 8), 2),
+            ))
+        db.commit()
+
+    # Risk predictions history
+    if not db.scalar(select(RiskPrediction).limit(1)):
+        for _ in range(25):
+            di = rng.choice(all_districts)
+            score = round(rng.uniform(20, 95), 1)
+            db.add(RiskPrediction(
+                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                risk_score=score,
+                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61 else "MODERATE" if score >= 41 else "LOW"),
+                confidence=round(rng.uniform(0.6, 0.95), 2),
+                factors=json.dumps(["Heavy rainfall", "High soil moisture", "Steep slope"]),
+                factor_contributions=json.dumps([
+                    {"factor": "Heavy 24-hour rainfall", "contribution": 25},
+                    {"factor": "High soil moisture", "contribution": 20},
+                ]),
+                recommended_action="Increased monitoring recommended",
+                predicted_at=now - timedelta(hours=rng.randint(0, 48)),
+            ))
+        db.commit()
+
+    # Incidents
+    if not db.scalar(select(Incident).limit(1)):
+        inc = Incident(
+            incident_type="slope_crack", severity="high", status="response",
+            verification_status="verified",
+            description="Large cracks observed near hillside road leading to village.",
+            latitude=24.81, longitude=92.80, district_id=district_objs[("AS", "Cachar")].id,
+            reported_by=users["field_official"].id,
+        )
+        db.add(inc)
+        db.flush()
+        db.add(EmergencyResponse(
+            incident_id=inc.id,
+            priority_score=88.0,
+            priority_class="immediate",
+            population_affected=12500,
+        ))
+        inc2 = Incident(
+            incident_type="blocked_road", severity="critical", status="monitoring",
+            verification_status="verified",
+            description="Amlaren road fully blocked by landslide debris.",
+            latitude=25.57, longitude=91.88, district_id=district_objs[("ML", "East Khasi Hills")].id,
+            reported_by=users["citizen"].id,
+        )
+        db.add(inc2)
+        db.flush()
+        db.add(EmergencyResponse(
+            incident_id=inc2.id,
+            priority_score=82.0,
+            priority_class="high",
+            population_affected=8900,
+        ))
+        db.commit()
+
+    # Field reports tied to incidents
+    if not db.scalar(select(FieldReport).limit(1)):
+        db.add(FieldReport(
+            report_type="slope_crack", severity="high",
+            description="Crack widening along NH-6 section.",
+            latitude=24.81, longitude=92.80, district_id=district_objs[("AS", "Cachar")].id,
+            reported_by=users["field_official"].id,
+            incident_id=db.scalar(select(Incident).where(Incident.incident_type == "slope_crack").limit(1)).id,
+            sync_status="synced",
+        ))
+        db.commit()
+
+    # Alerts
+    if not db.scalar(select(Alert).limit(1)):
+        db.add(Alert(
+            title="Landslide Risk Warning: High",
+            message="A High landslide risk has been detected near Cachar (78/100). Increased monitoring recommended.",
+            severity="warning", alert_type="risk", status="active", risk_level="HIGH",
+            cause="AI risk prediction exceeded threshold",
+            recommended_action="Increased monitoring and preparedness",
+            district_id=district_objs[("AS", "Cachar")].id,
+            latitude=24.81, longitude=92.80,
+            affected_villages=json.dumps(["Village 1 Cachar", "Village 2 Cachar"]),
+            affected_roads=json.dumps(["NH-6"]),
+        ))
+        db.commit()
+
+    print("Seed complete.")
+
+    # assign users to global dict for emergencies
+    db.commit()
+
+
+def run_seed():
+    db = SessionLocal()
+    try:
+        seed(db)
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    run_seed()
