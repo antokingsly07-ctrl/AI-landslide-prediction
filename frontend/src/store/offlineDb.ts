@@ -73,5 +73,5 @@ export async function getCache(key: string): Promise<string | undefined> {
 
 export async function clearCache(): Promise<void> {
   const db = await getDB();
-  (await db.getAllKeys("cache")).forEach(async (k) => db.delete("cache", k));
+  (await db.getAllKeys("cache")).forEach(async (k: any) => db.delete("cache", k));
 }

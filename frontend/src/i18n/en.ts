@@ -146,5 +146,3 @@ export default {
       "AI predictions are advisory only and support — not replace — human verification and official disaster-management decisions.",
   },
 };
-
-export type MessageKey = typeof en;

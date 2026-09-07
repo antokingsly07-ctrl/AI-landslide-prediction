@@ -3,8 +3,8 @@ import {
   getPendingReports,
   removePendingReport,
   updatePendingReport,
-} from "./offlineDb";
-import type { PendingReport } from "./offlineDb";
+} from "../store/offlineDb";
+import type { PendingReport } from "../store/offlineDb";
 
 let syncing = false;
 
@@ -69,7 +69,6 @@ export async function syncPendingReports(): Promise<{
 
 export function subscribeToOnline(cb: () => void): () => void {
   const onOnline = () => cb();
-  window.addEventListener("online", onOnline);
   window.addEventListener("online", onOnline);
   return () => window.removeEventListener("online", onOnline);
 }
