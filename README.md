@@ -4,6 +4,16 @@ A production-oriented AI early-warning and monitoring platform for landslides in
 
 > ⚠️ **Advisory only.** AI predictions are advisory and support — not replace — human verification and official disaster-management decisions.
 
+## Local URLs
+
+| Service | URL |
+| --- | --- |
+| **Frontend (web app)** | http://localhost:5173 |
+| **Backend API** | http://127.0.0.1:8000 |
+| **API Docs (Swagger UI)** | http://127.0.0.1:8000/docs |
+
+*Start both services (see [Getting Started](#getting-started)), then open http://localhost:5173. The frontend proxies `/api` to the backend automatically.*
+
 ## Features
 
 - **ML risk engine** — XGBoost/gradient-boosting model (explainable: rainfall, soil moisture, geology, prior landslides) producing a 0–100 risk score and level (Very Low → Critical).
