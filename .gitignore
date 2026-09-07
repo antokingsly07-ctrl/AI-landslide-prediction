@@ -32,8 +32,8 @@ backend/storage/
 *.db-journal
 
 # Model artifacts (large binary trained models)
-backend/app/ml/ml_artifacts/*.joblib
-backend/app/ml/ml_artifacts/*.pkl
+backend/app/ml_artifacts/*.joblib
+backend/app/ml_artifacts/*.pkl
 
 # IDE / OS
 .vscode/
