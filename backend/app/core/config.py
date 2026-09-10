@@ -38,10 +38,12 @@ class Settings(BaseSettings):
     TERRAIN_API_KEY: str = ""
     TERRAIN_BASE_URL: str = ""
 
-    # Live weather providers: auto | openweather | openmeteo | imd | mock
+    # Live weather providers: auto | openweather | weatherapi | openmeteo | imd | mock
     WEATHER_PROVIDER: str = "auto"
     OPENWEATHER_API_KEY: str = ""
     OPENWEATHER_BASE_URL: str = "https://api.openweathermap.org/data/2.5"
+    WEATHERAPI_API_KEY: str = ""
+    WEATHERAPI_BASE_URL: str = "https://api.weatherapi.com/v1"
 
     # Notifications
     SMS_API_KEY: str = ""

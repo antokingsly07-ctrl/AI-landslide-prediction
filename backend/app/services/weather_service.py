@@ -483,6 +483,76 @@ class OpenWeatherMapProvider(WeatherProvider):
         return out
 
 
+class WeatherAPIProvider(WeatherProvider):
+    """Real weather from WeatherAPI.com (free key, no card, simple JSON)."""
+
+    name = "weatherapi"
+
+    def __init__(self, api_key: str = "", base_url: str = ""):
+        self.api_key = api_key or settings.WEATHERAPI_API_KEY
+        self.base_url = base_url or settings.WEATHERAPI_BASE_URL
+
+    def _warning(self, rain: float) -> str:
+        return ("watch" if rain >= 100
+                else "advisory" if rain >= 40 else "none")
+
+    async def _get(self, client, path: str, lat: float, lon: float,
+                   extra: Optional[dict] = None) -> dict:
+        params: dict = {"key": self.api_key, "q": f"{lat},{lon}"}
+        if extra:
+            params.update(extra)
+        resp = await client.get(f"{self.base_url}/{path}", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def fetch_current(self, lat: float, lon: float) -> dict:
+        if not self.api_key:
+            raise RuntimeError("WEATHERAPI_API_KEY not configured")
+        async with httpx.AsyncClient(timeout=15) as client:
+            data = await self._get(client, "current.json", lat, lon)
+            fc = await self._get(client, "forecast.json", lat, lon, {"days": "1"})
+        cur = data.get("current") or {}
+        cond = cur.get("condition") or {}
+        fday = ((fc.get("forecast") or {}).get("forecastday") or [{}])[0]
+        day = fday.get("day") or {}
+        hourly = fday.get("hour") or []
+        rain_1h = float(cur.get("precip_mm") or 0)
+        rain_6h = sum(float((h.get("precip_mm") or 0)) for h in hourly[:6])
+        rain_24h = float(day.get("totalprecip_mm") or 0) or rain_1h * 14
+        return {
+            **self._base(lat, lon),
+            "rainfall_mm": round(rain_1h, 2),
+            "rain_1h": round(rain_1h, 2),
+            "rain_6h": round(rain_6h, 2),
+            "rain_24h": round(rain_24h, 2),
+            "temperature_c": round(float(cur.get("temp_c") or 0), 1),
+            "humidity_percent": round(float(cur.get("humidity") or 0), 1),
+            "pressure_hpa": round(float(cur.get("pressure_mb") or 0), 1),
+            "wind_speed": round(float(cur.get("wind_kph") or 0), 1),
+            "forecast": cond.get("text") or "Fair",
+            "warning": self._warning(rain_24h),
+            "is_demo": False,
+        }
+
+    async def fetch_forecast(self, lat: float, lon: float) -> list[dict]:
+        if not self.api_key:
+            raise RuntimeError("WEATHERAPI_API_KEY not configured")
+        async with httpx.AsyncClient(timeout=15) as client:
+            fc = await self._get(client, "forecast.json", lat, lon, {"days": "7"})
+        out = []
+        for fday in (fc.get("forecast") or {}).get("forecastday") or []:
+            day = fday.get("day") or {}
+            out.append({
+                "date": fday.get("date") or "",
+                "rainfall_mm": round(float(day.get("totalprecip_mm") or 0), 1),
+                "temperature_c": round(float(day.get("maxtemp_c") or 0), 1),
+                "temp_min": round(float(day.get("mintemp_c") or 0), 1),
+                "precipitation_prob": round(
+                    float(day.get("daily_chance_of_rain") or 0), 0),
+            })
+        return out
+
+
 def get_weather_provider() -> WeatherProvider:
     """Select provider based on configuration.
 
@@ -494,12 +564,16 @@ def get_weather_provider() -> WeatherProvider:
         return MockWeatherProvider()
     if mode == "openweather":
         return OpenWeatherMapProvider()
+    if mode == "weatherapi":
+        return WeatherAPIProvider()
     if mode == "openmeteo":
         return OpenMeteoProvider()
     if mode == "imd":
         return IMDWeatherProvider()
     if settings.OPENWEATHER_API_KEY:
         return OpenWeatherMapProvider()
+    if settings.WEATHERAPI_API_KEY:
+        return WeatherAPIProvider()
     if settings.IMD_API_KEY or settings.IMD_API_TOKEN:
         return IMDWeatherProvider()
     return OpenMeteoProvider()
