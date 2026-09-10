@@ -445,6 +445,47 @@ def ensure_admin_login() -> None:
         db.close()
 
 
+def ensure_demo_users() -> None:
+    """Guarantee every demo sandbox user can log in, independently of the heavy
+    demo seed (which can abort part-way on a fresh Postgres and skip users).
+
+    This is the safety net that keeps all five roles usable even when the full
+    seed fails after roles are committed but before users are created.
+    """
+    from app.db.session import SessionLocal as _SL
+
+    db = _SL()
+    try:
+        roles = {}
+        for name, desc in ROLES:
+            role = db.scalar(select(Role).where(Role.name == name))
+            if role is None:
+                role = Role(name=name, description=desc)
+                db.add(role)
+                db.flush()
+            roles[name] = role
+
+        districts = {d.name: d for d in db.scalars(select(District)).all()}
+        for email, (fname, pw, role, dist_name) in SANDBOX_USER_CREDENTIALS.items():
+            if db.scalar(select(User).where(User.email == email)):
+                continue
+            dist = districts.get(dist_name) if dist_name else None
+            db.add(User(
+                email=email,
+                full_name=fname,
+                hashed_password=hash_password(pw),
+                role_id=roles[role].id,
+                district_id=dist.id if dist else None,
+                preferred_language="en",
+            ))
+        db.commit()
+        print("Ensured demo sandbox users (all roles)")
+    except Exception as exc:  # pragma: no cover
+        print(f"Ensure demo users skipped: {exc}")
+    finally:
+        db.close()
+
+
 def seed_example_data(db: Session) -> None:
     """Richer, idempotent demo data for incidents, field reports, alerts,
     emergency responses and road/sensor statuses. Safe to run repeatedly.

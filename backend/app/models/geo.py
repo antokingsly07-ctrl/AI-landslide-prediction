@@ -60,7 +60,7 @@ class District(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), index=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=True)
     state_id: Mapped[str] = mapped_column(ForeignKey("states.id"))
     latitude: Mapped[float] = mapped_column(Float, nullable=True)
     longitude: Mapped[float] = mapped_column(Float, nullable=True)

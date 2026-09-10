@@ -1,7 +1,7 @@
 """SQLAlchemy database setup with PostgreSQL/PostGIS support and SQLite fallback."""
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -54,3 +54,14 @@ def init_db() -> None:
     from app import models  # noqa: F401  ensure models are registered
 
     Base.metadata.create_all(bind=engine)
+
+    if not settings.is_sqlite:
+        # Idempotent schema compatibility for columns previously sized too small
+        # (e.g. districts.code VARCHAR(20) -> VARCHAR(32)). Safe on healthy schemas.
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE districts ALTER COLUMN code TYPE VARCHAR(32)")
+            )
+            conn.execute(
+                text("ALTER TABLE users ALTER COLUMN email TYPE VARCHAR(255)")
+            )
