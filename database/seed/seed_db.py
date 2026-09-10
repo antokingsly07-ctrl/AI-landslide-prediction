@@ -156,20 +156,21 @@ def seed(db: Session):
                 all_villages.append(v)
 
             # roads
-            for j in range(4):
-                rname = f"{d['name']} {ROAD_SUFFIXES[rng.randrange(len(ROAD_SUFFIXES))]} {j+1}"
-                r = db.scalar(select(Road).where(Road.name == rname))
-                if not r:
-                    r = Road(
-                        name=rname,
-                        road_type=rng.choice(["highway", "state", "district", "village"]),
-                        district_id=di.id,
-                        latitude=round(d["lat"] + rng.uniform(-0.2, 0.2), 5),
-                        longitude=round(d["lon"] + rng.uniform(-0.2, 0.2), 5),
-                        status=rng.choice(["open", "open", "open", "restricted", "blocked"]),
-                        population_served=rng.randint(1000, 200000),
-                        alternative_route=rng.random() > 0.3,
-                        priority_score=round(rng.uniform(0, 100), 1),
+            if not db.scalar(select(Road).where(Road.district_id == di.id).limit(1)):
+                for _j in range(4):
+                    rname = f"{d['name']} {ROAD_SUFFIXES[rng.randrange(len(ROAD_SUFFIXES))]} {_j+1}"
+                    r = db.scalar(select(Road).where(Road.name == rname))
+                    if not r:
+                        r = Road(
+                            name=rname,
+                            road_type=rng.choice(["highway", "state", "district", "village"]),
+                            district_id=di.id,
+                            latitude=round(d["lat"] + rng.uniform(-0.2, 0.2), 5),
+                            longitude=round(d["lon"] + rng.uniform(-0.2, 0.2), 5),
+                            status=rng.choice(["open", "open", "open", "restricted", "blocked"]),
+                            population_served=rng.randint(1000, 200000),
+                            alternative_route=rng.random() > 0.3,
+                            priority_score=round(rng.uniform(0, 100), 1),
                     )
                     db.add(r)
                     db.flush()
@@ -405,6 +406,7 @@ def run_seed():
     db = SessionLocal()
     try:
         seed(db)
+        seed_example_data(db)
     except Exception:
         import traceback
 
@@ -441,6 +443,179 @@ def ensure_admin_login() -> None:
         print(f"Ensure admin login skipped: {exc}")
     finally:
         db.close()
+
+
+def seed_example_data(db: Session) -> None:
+    """Richer, idempotent demo data for incidents, field reports, alerts,
+    emergency responses and road/sensor statuses. Safe to run repeatedly.
+
+    Uses distinct marker rows so extra data is added only if missing, without
+    disturbing whatever the base seed (or a previously failed run) stored.
+    """
+    rng = random.Random(101)
+    now = utcnow()
+
+    def by_district(name: str):
+        return db.scalar(select(District).where(District.name == name))
+
+    def by_role(role_name: str):
+        return db.scalar(
+            select(User).join(Role, User.role_id == Role.id).where(Role.name == role_name).limit(1)
+        )
+
+    field = by_role("field_official")
+    citizen = by_role("citizen")
+
+    try:
+        # --- Extra incidents + emergency responses -------------------------
+        incidents_extra = [
+            ("rockfall", "medium", "reported", "pending", "Dima Hasao", "citizen",
+             "Rockfall along the hill section of NH-6 after overnight rain; loose boulders on shoulder."),
+            ("movement", "critical", "response", "verified", "Aizawl", "field",
+             "Rapid ground movement detected at Chalfilh village boundary; cracks visible across road."),
+            ("blocked_road", "high", "monitoring", "verified", "East Khasi Hills", "field",
+             "Shillong-Cherrapunjee road partially blocked by boulders and mud."),
+            ("sinkhole", "medium", "reported", "pending", "Ri Bhoi", "citizen",
+             "Sinkhole forming near new bridge construction site; surface depression growing."),
+            ("slope_crack", "high", "response", "verified", "Gomati", "citizen",
+             "Longitudinal cracks widening on a residential slope above the bazaar."),
+            ("flooding", "critical", "response", "verified", "Cachar", "field",
+             "Waterlogging undercutting hill roads in low-lying wards after sustained rain."),
+        ]
+        added_incidents = 0
+        for itype, sev, status, vstatus, dname, by, desc in incidents_extra:
+            if db.scalar(select(Incident).where(Incident.description == desc)):
+                continue
+            di = by_district(dname)
+            if di is None:
+                continue
+            reporter = field if by == "field" else citizen
+            inc = Incident(
+                incident_type=itype, severity=sev, status=status,
+                verification_status=vstatus, description=desc,
+                latitude=di.latitude + rng.uniform(-0.08, 0.08),
+                longitude=di.longitude + rng.uniform(-0.08, 0.08),
+                district_id=di.id, reported_by=reporter.id if reporter else None,
+                reported_at=now - timedelta(hours=rng.randint(1, 72)),
+                resolved_at=(now - timedelta(hours=rng.randint(2, 24))) if status == "monitoring" else None,
+            )
+            db.add(inc)
+            db.flush()
+            score = {"critical": rng.uniform(80, 96), "high": rng.uniform(65, 82),
+                     "medium": rng.uniform(45, 64), "low": rng.uniform(20, 44)}.get(sev, 50)
+            cls = "immediate" if score >= 85 else "high" if score >= 65 else "medium" if score >= 45 else "low"
+            db.add(EmergencyResponse(
+                incident_id=inc.id,
+                priority_score=round(score, 1),
+                priority_class=cls,
+                population_affected=int(rng.uniform(800, 18000)),
+                status=("ongoing" if status == "response" else "planned"),
+                responder_notes=f"Team routed to {dname}; Evacuation buffer approved for {cls} priority.",
+            ))
+            added_incidents += 1
+        db.commit()
+        if added_incidents:
+            print(f"Added {added_incidents} example incidents + emergency responses.")
+
+        # --- Extra field reports ------------------------------------------
+        reports_extra = [
+            ("rockfall", "medium", "Boulder deposition measured on NH-6 shoulder near Dima Hasao.", "Dima Hasao", "field"),
+            ("blocked_road", "high", "Debris piled 1.5 m deep across road; detour via village track.", "East Khasi Hills", "field"),
+            ("slope_crack", "high", "Crack aperture ~120 mm and extending 40 m along slope.", "Gomati", "field"),
+            ("flooding", "critical", "Sewage + runoff flooding hillside; structures at risk.", "Cachar", "citizen"),
+            ("movement", "critical", "Tiltmeter spikes recorded; staff instructed to blank surveillance.", "Aizawl", "field"),
+        ]
+        added_reports = 0
+        for rtype, sev, desc, dname, by in reports_extra:
+            if db.scalar(select(FieldReport).where(FieldReport.description == desc)):
+                continue
+            di = by_district(dname)
+            if di is None:
+                continue
+            reporter = field if by == "field" else citizen
+            db.add(FieldReport(
+                report_type=rtype, severity=sev, description=desc,
+                latitude=di.latitude + rng.uniform(-0.05, 0.05),
+                longitude=di.longitude + rng.uniform(-0.05, 0.05),
+                district_id=di.id,
+                reported_by=reporter.id if reporter else None,
+                reported_at=now - timedelta(hours=rng.randint(1, 48)),
+                sync_status="synced",
+            ))
+            added_reports += 1
+        db.commit()
+        if added_reports:
+            print(f"Added {added_reports} example field reports.")
+
+        # --- Extra alerts -----------------------------------------------------
+        alerts_extra = [
+            ("Extreme Rainfall Watch: Dima Hasao", "watch", "rainfall", "active", "HIGH",
+             "Dima Hasao", "Extreme 24-hour rainfall (210 mm) forecast overnight.",
+             "Move vulnerable families away from steep slopes; check early-warning siren.", ["NH-6"]),
+            ("Critical: Elevated Rockfall Risk after Tremor", "critical", "risk", "active", "CRITICAL",
+             "Aizawl", "Post-tremor slope shaking increases rockfall probability.",
+             "Restrict non-essential road use; dispatch inspection teams.", []),
+            ("Soil Moisture Anomaly: Ri Bhoi", "advisory", "soil", "acknowledged", "MODERATE",
+             "Ri Bhoi", "Soil moisture above seasonal norms in northern catchment.",
+             "Continue weekly monitoring cadence.", []),
+            ("Road Closure Advisory: NH-6 Section", "warning", "road", "active", "HIGH",
+             "Dima Hasao", "Rockfall debris reduces NH-6 to single lane near km 42.",
+             "Flag closure; deploy traffic control.", ["NH-6"]),
+            ("Satellite Deformation Signal Resolved: Cachar", "warning", "satellite", "resolved", "HIGH",
+             "Cachar", "Interferometric signal reduced to background after field inspection.",
+             "Archive observation; keep zone under watch.", []),
+        ]
+        added_alerts = 0
+        for title, sev, atype, status, rlevel, dname, msg, action, roads in alerts_extra:
+            if db.scalar(select(Alert).where(Alert.title == title)):
+                continue
+            di = by_district(dname)
+            if di is None:
+                continue
+            db.add(Alert(
+                title=title, message=msg, severity=sev, alert_type=atype, status=status,
+                risk_level=rlevel, cause="Auto-generated from demo enrichment seed",
+                recommended_action=action,
+                affected_villages=json.dumps([v.name for v in (di.villages or [])[:2]]),
+                affected_roads=json.dumps(roads),
+                district_id=di.id,
+                latitude=di.latitude + rng.uniform(-0.1, 0.1),
+                longitude=di.longitude + rng.uniform(-0.1, 0.1),
+                triggered_at=now - timedelta(hours=rng.randint(2, 48)),
+            ))
+            added_alerts += 1
+        db.commit()
+        if added_alerts:
+            print(f"Added {added_alerts} example alerts.")
+
+        # --- Road statuses (only if all roads are currently 'open') -------------
+        if not db.scalar(select(Road).where(Road.status.in_(["blocked", "restricted", "severely_blocked"]))):
+            roads = db.scalars(select(Road).limit(8)).all()
+            for i, rd in enumerate(roads):
+                rd.status = ["blocked", "restricted", "severely_blocked", "restricted"][i % 4]
+                rd.priority_score = round(rng.uniform(65, 95), 1)
+                rd.alternative_route = i % 3 != 0
+                rd.last_status_update = now - timedelta(hours=rng.randint(1, 30))
+            db.commit()
+            print(f"Marked {len(roads)} example roads as affected.")
+
+        # --- Sensor status variety (only if every sensor is 'online') -----------
+        if not db.scalar(select(Sensor).where(Sensor.status != "online")):
+            offline = db.scalars(select(Sensor).limit(5)).all()
+            for j, s in enumerate(offline):
+                s.status = "maintenance" if j < 2 else "offline"
+            db.commit()
+            print("Set example sensor statuses (maintenance/offline).")
+
+    except Exception as exc:  # pragma: no cover
+        import traceback
+
+        traceback.print_exc()
+        print(f"Example-data enrichment skipped: {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

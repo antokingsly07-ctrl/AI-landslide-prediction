@@ -193,10 +193,11 @@ def admin_sensors(db: Session = Depends(get_db), user: User = Depends(require_mi
 @router.post("/reseed", status_code=200)
 def reseed_demo_data(db: Session = Depends(get_db), user: User = Depends(require_min_role("super_admin"))):
     """Idempotently (re)populate the demo datasets. Adds any missing records."""
-    from database.seed.seed_db import seed
+    from database.seed.seed_db import seed, seed_example_data
 
     try:
         seed(db)
+        seed_example_data(db)
     except Exception as exc:  # pragma: no cover
         import traceback
 
