@@ -87,7 +87,7 @@ export default function Dashboard() {
             <h3 className="font-semibold">{t("dashboard.soil_moisture")}</h3>
             {latest(soil, "moisture") && (
               <span className="badge bg-green-100 text-green-700">
-                now {latest(soil, "moisture")}%{latest(soil, "moisture") >= 70 ? " ⚠ saturated" : ""}
+                now {latest(soil, "moisture")}%{Number(latest(soil, "moisture")) >= 70 ? " ⚠ saturated" : ""}
               </span>
             )}
           </div>
