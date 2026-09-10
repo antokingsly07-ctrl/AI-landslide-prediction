@@ -1,0 +1,15 @@
+.git
+.vercel
+**/.venv
+backend/.venv
+backend/logs
+backend/storage
+frontend
+*.db
+*.sqlite3
+__pycache__
+**/__pycache__
+*.pyc
+*.tsbuildinfo
+scripts
+api
