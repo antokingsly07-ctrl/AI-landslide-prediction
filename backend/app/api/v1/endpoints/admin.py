@@ -188,3 +188,18 @@ def admin_sensors(db: Session = Depends(get_db), user: User = Depends(require_mi
         "district_id": s.district_id, "latitude": s.latitude, "longitude": s.longitude,
         "last_reading_at": s.last_reading_at,
     } for s in rows]
+
+
+@router.post("/reseed", status_code=200)
+def reseed_demo_data(db: Session = Depends(get_db), user: User = Depends(require_min_role("super_admin"))):
+    """Idempotently (re)populate the demo datasets. Adds any missing records."""
+    from database.seed.seed_db import seed
+
+    try:
+        seed(db)
+    except Exception as exc:  # pragma: no cover
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Demo reseed failed: {exc}") from exc
+    return {"status": "ok", "message": "Demo data reseeded (new records added only)"}

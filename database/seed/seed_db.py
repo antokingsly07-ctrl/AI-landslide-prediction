@@ -405,6 +405,11 @@ def run_seed():
     db = SessionLocal()
     try:
         seed(db)
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        raise
     finally:
         db.close()
 
