@@ -1,7 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && npm ci && npm run build && cd .. && rm -rf frontend/node_modules frontend/package-lock.json || true",
-  "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.py": {
       "maxDuration": 10
@@ -11,6 +9,6 @@
     { "handle": "filesystem" },
     { "src": "/api/(.*)", "dest": "/api/index.py" },
     { "src": "/media/(.*)", "dest": "/api/index.py" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/(.*)", "dest": "/api/index.py" }
   ]
 }
