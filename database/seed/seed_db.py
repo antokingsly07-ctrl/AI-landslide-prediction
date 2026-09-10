@@ -409,5 +409,34 @@ def run_seed():
         db.close()
 
 
+def ensure_admin_login() -> None:
+    """Guarantee the demo super admin can log in, independently of the heavy
+    demo seed (which can abort part-way on a fresh Postgres and skip users)."""
+    from app.db.session import SessionLocal as _SL
+
+    db = _SL()
+    try:
+        role = db.scalar(select(Role).where(Role.name == "super_admin"))
+        if role is None:
+            role = Role(name="super_admin", description="Platform administrator with full access")
+            db.add(role)
+            db.commit()
+        user = db.scalar(select(User).where(User.email == "super_admin@landslide.demo"))
+        if user is None:
+            db.add(User(
+                email="super_admin@landslide.demo",
+                full_name="Super Admin",
+                hashed_password=hash_password("admin123"),
+                role_id=role.id,
+                preferred_language="en",
+            ))
+            db.commit()
+            print("Ensured demo super_admin login (super_admin@landslide.demo / admin123)")
+    except Exception as exc:  # pragma: no cover
+        print(f"Ensure admin login skipped: {exc}")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     run_seed()

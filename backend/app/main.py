@@ -57,6 +57,12 @@ def create_app() -> FastAPI:
             run_seed()
         except Exception as e:  # pragma: no cover
             print(f"Seed warning: {e}")
+        from database.seed.seed_db import ensure_admin_login
+
+        try:
+            ensure_admin_login()
+        except Exception as e:  # pragma: no cover
+            print(f"Admin login ensure warning: {e}")
         try:
             ensure_model()
         except Exception as e:  # pragma: no cover
