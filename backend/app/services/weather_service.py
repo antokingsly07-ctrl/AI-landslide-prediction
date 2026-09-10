@@ -1,4 +1,6 @@
 """Modular weather provider with IMD + Mock implementations."""
+import math
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -24,37 +26,257 @@ class WeatherProvider(ABC):
 
 
 class IMDWeatherProvider(WeatherProvider):
-    """India Meteorological Department integration (configurable)."""
+    """India Meteorological Department integration via the official IMD API portal.
+
+    Endpoints (https://api.imd.gov.in/public/api_reference.html):
+      * /api/v1/aws_data        - live AWS/ARG station observations; nearest
+                                  station to (lat, lon) is selected by distance
+      * /api/v1/districtrainfall - daily actual district rainfall (24h)
+      * /api/v1/state_district_rainfall_forecast - 5-day rainfall outlook
+      * /api/v1/current_wx      - single-station current weather fallback
+                                  (used when IMD_STATION_ID is set)
+
+    Auth: a JWT bearer token (IMD_API_TOKEN) or the portal API key
+    (IMD_API_KEY, sent as a bearer credential). If IMD_TOKEN_URL is configured
+    the key is exchanged for a JWT first.
+    """
 
     name = "imd"
 
-    def __init__(self, api_key: str = "", base_url: str = ""):
+    def __init__(self, api_key: str = "", token: str = "", base_url: str = "",
+                 state_id: int = 0, station_id: str = ""):
         self.api_key = api_key or settings.IMD_API_KEY
-        self.base_url = base_url or settings.IMD_BASE_URL
+        self.token = token or settings.IMD_API_TOKEN
+        self.base_url = (base_url or settings.IMD_BASE_URL
+                         or "https://api.imd.gov.in").rstrip("/")
+        self.state_id = state_id or settings.IMD_STATE_ID or 24
+        self.station_id = station_id or settings.IMD_STATION_ID or ""
+        self.token_url = settings.IMD_TOKEN_URL or ""
+        self._jwt: Optional[str] = None
+        self._last_district = ""
 
-    async def fetch_current(self, lat: float, lon: float) -> dict:
+    # ------------------------------------------------------------------ auth
+    async def _bearer(self) -> str:
+        if self.token:
+            return self.token
+        if self._jwt:
+            return self._jwt
         if not self.api_key:
-            raise RuntimeError("IMD_API_KEY not configured")
-        url = f"{self.base_url}/weather/current"
-        params = {"lat": lat, "lon": lon, "apikey": self.api_key}
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        data.update(self._base(lat, lon))
-        return data
+            raise RuntimeError("IMD_API_KEY / IMD_API_TOKEN not configured")
+        if self.token_url:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        self.token_url,
+                        data={"grant_type": "client_credentials",
+                              "client_id": self.api_key},
+                    )
+                    resp.raise_for_status()
+                    payload = resp.json()
+                self._jwt = (payload.get("access_token") or payload.get("token")
+                             or payload.get("jwt") or "")
+            except Exception:
+                self._jwt = ""
+        self._jwt = self._jwt or self.api_key
+        return self._jwt
+
+    async def _get(self, client, path: str, params: Optional[dict] = None) -> dict:
+        resp = await client.get(
+            f"{self.base_url}{path}",
+            params=params,
+            headers={"Authorization": f"Bearer {await self._bearer()}"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    # ------------------------------------------------------------- parsing
+    @staticmethod
+    def _norm(key) -> str:
+        return re.sub(r"[^a-z0-9]", "", (key or "").lower())
+
+    @classmethod
+    def _flat(cls, row: dict) -> dict:
+        return {cls._norm(k): v for k, v in row.items()}
+
+    @staticmethod
+    def _rows(payload) -> list:
+        if isinstance(payload, list):
+            return [r for r in payload if isinstance(r, dict)]
+        if isinstance(payload, dict):
+            for key in ("data", "records", "result", "list"):
+                val = payload.get(key)
+                if isinstance(val, list):
+                    return [r for r in val if isinstance(r, dict)]
+            return [payload]
+        return []
+
+    @staticmethod
+    def _num(row: dict, *keys: str) -> float:
+        for key in keys:
+            val = row.get(key)
+            if val is None:
+                continue
+            if isinstance(val, (int, float)):
+                return float(val)
+            try:
+                return float(str(val).strip())
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    @staticmethod
+    def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        radius = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2
+             + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+             * math.sin(dlon / 2) ** 2)
+        a = min(1.0, max(0.0, a))
+        return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    @staticmethod
+    def _dist_to_mm(text: str) -> float:
+        t = (text or "").strip().lower()
+        if not t or t in ("none", "nil", "dry", "no rain", "fair"):
+            return 0.0
+        if "fairly widespread" in t:
+            return 7.0
+        if "widespread" in t:
+            return 12.0
+        if "scattered" in t:
+            return 3.0
+        if "isolated" in t:
+            return 1.0
+        m = re.search(r"\d+(?:\.\d+)?", t)
+        return float(m.group(0)) if m else 0.0
+
+    @staticmethod
+    def _prob(text) -> int:
+        nums = [int(x) for x in re.findall(r"\d+", str(text or ""))]
+        if len(nums) >= 2:
+            return (nums[0] + nums[1]) // 2
+        return nums[0] if nums else 0
+
+    # ----------------------------------------------------------- data source
+    async def _nearest_aws(self, client, lat: float, lon: float) -> Optional[dict]:
+        payload = await self._get(client, "/api/v1/aws_data",
+                                  {"sid": self.state_id})
+        best: Optional[dict] = None
+        best_dist = float("inf")
+        for row in self._rows(payload):
+            flat = self._flat(row)
+            rlat = self._num(flat, "latitude")
+            rlon = self._num(flat, "longitude")
+            if not math.isfinite(rlat) or not math.isfinite(rlon):
+                continue
+            dist = self._distance_km(lat, lon, rlat, rlon)
+            if dist < best_dist:
+                best_dist, best = dist, row
+        return best
+
+    async def _district_rain_24h(self, client, district: str) -> float:
+        target = (district or "").strip().upper()
+        if not target:
+            return 0.0
+        try:
+            payload = await self._get(client, "/api/v1/districtrainfall", {})
+        except Exception:
+            return 0.0
+        for row in self._rows(payload):
+            flat = self._flat(row)
+            if str(flat.get("district") or "").strip().upper() == target:
+                return self._num(flat, "dailyactual")
+        return 0.0
+
+    # -------------------------------------------------------------- endpoints
+    async def fetch_current(self, lat: float, lon: float) -> dict:
+        async with httpx.AsyncClient(timeout=20) as client:
+            aws = None
+            try:
+                aws = await self._nearest_aws(client, lat, lon)
+            except Exception:
+                aws = None
+            flat = self._flat(aws) if aws else {}
+            self._last_district = str(flat.get("district") or "")
+            rain_24h = await self._district_rain_24h(client, self._last_district)
+
+        out = {
+            **self._base(lat, lon),
+            "rainfall_mm": round(rain_24h, 2),
+            "rain_1h": None,
+            "rain_6h": None,
+            "rain_24h": round(rain_24h, 2),
+            "temperature_c": round(self._num(flat, "currtemp", "temperature"), 1),
+            "humidity_percent": round(self._num(flat, "rh", "humidity"), 1),
+            "pressure_hpa": round(self._num(flat, "mslp"), 1),
+            "wind_speed": round(self._num(flat, "windspeed"), 1),
+            "station": str(flat.get("station") or ""),
+            "district": self._last_district or str(flat.get("state") or ""),
+            "forecast": "Monsoon conditions" if rain_24h > 0 else "Fair",
+            "warning": ("watch" if rain_24h >= 100
+                        else "advisory" if rain_24h >= 40 else "none"),
+            "is_demo": False,
+        }
+        slat = self._num(flat, "latitude")
+        slon = self._num(flat, "longitude")
+        out["station_lat"] = slat if math.isfinite(slat) else None
+        out["station_lon"] = slon if math.isfinite(slon) else None
+
+        if aws is None and self.station_id:
+            async with httpx.AsyncClient(timeout=20) as client:
+                payload = await self._get(client, "/api/v1/current_wx",
+                                          {"id": self.station_id})
+            rec = self._flat(self._rows(payload)[0]) if self._rows(payload) else {}
+            rain = self._num(rec, "last24hrsrainfall")
+            out.update({
+                "temperature_c": round(self._num(rec, "temperature"), 1),
+                "humidity_percent": round(self._num(rec, "humidity"), 1),
+                "pressure_hpa": round(self._num(rec, "mslp"), 1),
+                "wind_speed": round(self._num(rec, "windspeed"), 1),
+                "rainfall_mm": round(rain, 2),
+                "rain_24h": round(rain, 2),
+                "station": str(rec.get("station") or ""),
+            })
+        if aws is None and not self.station_id:
+            raise RuntimeError(
+                "IMD aws_data returned no usable stations "
+                "(check IMD_STATE_ID / API access)")
+        return out
 
     async def fetch_forecast(self, lat: float, lon: float) -> list[dict]:
-        if not self.api_key:
-            raise RuntimeError("IMD_API_KEY not configured")
-        url = f"{self.base_url}/weather/forecast"
-        params = {"lat": lat, "lon": lon, "apikey": self.api_key}
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        rows = data.get("list", []) if isinstance(data, dict) else data
-        return rows
+        async with httpx.AsyncClient(timeout=20) as client:
+            payload = await self._get(
+                client, "/api/v1/state_district_rainfall_forecast", {})
+        rows = self._rows(payload)
+        if not rows:
+            raise RuntimeError("IMD forecast returned no rows")
+        rec = rows[0]
+        if self._last_district:
+            rec = next(
+                (r for r in rows
+                 if str(self._flat(r).get("district") or "").upper()
+                 == self._last_district.upper()),
+                rec,
+            )
+        flat = self._flat(rec)
+        base = str(flat.get("dateobs") or "")
+        try:
+            anchor = datetime.strptime(base[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            anchor = datetime.now(timezone.utc).date()
+        out = []
+        for i in range(1, 8):
+            dist = str(flat.get(f"day{i}distribution") or "Fair")
+            out.append({
+                "date": (anchor + timedelta(days=i - 1)).isoformat(),
+                "rainfall_mm": round(self._dist_to_mm(dist), 1),
+                "temperature_c": None,
+                "precipitation_prob": round(
+                    self._prob(flat.get(f"day{i}distributionpercentage")), 0),
+                "conditions": dist.strip() or "Fair",
+            })
+        return out
 
 
 class MockWeatherProvider(WeatherProvider):
@@ -278,6 +500,6 @@ def get_weather_provider() -> WeatherProvider:
         return IMDWeatherProvider()
     if settings.OPENWEATHER_API_KEY:
         return OpenWeatherMapProvider()
-    if settings.IMD_API_KEY and settings.IMD_BASE_URL:
+    if settings.IMD_API_KEY or settings.IMD_API_TOKEN:
         return IMDWeatherProvider()
     return OpenMeteoProvider()

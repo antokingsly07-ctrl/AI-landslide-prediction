@@ -28,7 +28,11 @@ class Settings(BaseSettings):
 
     # External providers
     IMD_API_KEY: str = ""
-    IMD_BASE_URL: str = ""
+    IMD_BASE_URL: str = "https://api.imd.gov.in"
+    IMD_API_TOKEN: str = ""
+    IMD_TOKEN_URL: str = ""
+    IMD_STATE_ID: int = 24
+    IMD_STATION_ID: str = ""
     SATELLITE_API_KEY: str = ""
     SATELLITE_BASE_URL: str = ""
     TERRAIN_API_KEY: str = ""
