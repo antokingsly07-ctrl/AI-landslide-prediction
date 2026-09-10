@@ -7,7 +7,22 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from app.core.config import settings
 
 connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
-engine = create_engine(settings.DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+
+
+def _normalise_database_url(url: str) -> str:
+    """Route postgres URLs to psycopg3 (installed), not the psycopg2 default."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+engine = create_engine(
+    _normalise_database_url(settings.DATABASE_URL),
+    connect_args=connect_args,
+    pool_pre_ping=True,
+)
 
 
 if settings.is_sqlite:
