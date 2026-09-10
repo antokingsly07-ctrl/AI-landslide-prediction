@@ -10,8 +10,6 @@ The legacy ``.joblib`` (sklearn pipeline) is still supported when present
 import json
 import os
 
-import numpy as np
-
 ARTIFACT_DIR = os.path.join(os.path.dirname(__file__), "..", "ml_artifacts")
 MODEL_PATH = os.path.join(ARTIFACT_DIR, "model.joblib")  # legacy sklearn pipeline
 MODEL_BOOSTER_PATH = os.path.join(ARTIFACT_DIR, "model.json")
@@ -24,7 +22,7 @@ class NativeXGBoostModel:
     def __init__(self, booster, preprocess: dict):
         self._booster = booster
         self._preprocess = preprocess
-        self.feature_names_in_ = np.array(preprocess["features"], dtype=object)
+        self.feature_names_in_ = list(preprocess["features"])
         self.metadata = {k: v for k, v in preprocess.items() if k != "features"}
 
     @property
@@ -32,6 +30,8 @@ class NativeXGBoostModel:
         return self.metadata.get("model_name") or self.metadata.get("model", "xgboost")
 
     def _transform(self, X):
+        import numpy as np
+
         X = np.asarray(X, dtype=np.float64)
         for g in self._preprocess.get("groups", []):
             idx = [self._preprocess["features"].index(c) for c in g["columns"]]
@@ -45,6 +45,7 @@ class NativeXGBoostModel:
         return X
 
     def predict_proba(self, X):
+        import numpy as np
         import xgboost as xgb
 
         Xt = self._transform(X)
@@ -53,6 +54,8 @@ class NativeXGBoostModel:
         return np.column_stack([1.0 - prob, prob])
 
     def predict(self, X):
+        import numpy as np
+
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
 
 
