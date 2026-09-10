@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#dc2626"/>
+      <stop offset="100%" style="stop-color:#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="32" fill="url(#bg)"/>
+  <text x="96" y="115" text-anchor="middle" font-size="80" fill="white" font-family="Arial, sans-serif" font-weight="bold">&#x26F0;</text>
+  <text x="96" y="160" text-anchor="middle" font-size="28" fill="white" font-family="Arial, sans-serif" font-weight="bold">EWS</text>
+</svg>
