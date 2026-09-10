@@ -1,6 +1,8 @@
-"""Vercel serverless entrypoint: FastAPI app via Mangum.
+"""Vercel entrypoint for the FastAPI framework preset.
 
-Vercel runs the Python code under `api/requirements.txt` and calls `handler`.
+Vercel's FastAPI preset looks for a FastAPI instance named `app` at a
+recognized entrypoint (api/index.py is one). The whole application is
+served as a single Vercel Function, so no ASGI-to-Lambda adapter is needed.
 """
 import os
 import sys
@@ -12,7 +14,4 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "backend"))
 sys.path.insert(0, ROOT)
 
-from app.main import app as fastapi_app  # noqa: E402
-from mangum import Mangum  # noqa: E402
-
-handler = Mangum(fastapi_app)
+from app.main import app  # noqa: E402
