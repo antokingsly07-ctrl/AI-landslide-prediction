@@ -97,7 +97,7 @@ def rainfall_trend(db: Session = Depends(get_db), user: User = Depends(get_curre
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     rows = db.execute(
         select(
-            RainfallRecord.observed_at,
+            _day_expr(RainfallRecord.observed_at),
             func.avg(RainfallRecord.rain_24h),
             func.avg(RainfallRecord.rain_6h),
         ).where(RainfallRecord.observed_at >= cutoff)
@@ -118,7 +118,7 @@ def soil_moisture_trend(db: Session = Depends(get_db), user: User = Depends(get_
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     rows = db.execute(
         select(
-            SoilMoistureRecord.observed_at,
+            _day_expr(SoilMoistureRecord.observed_at),
             func.avg(SoilMoistureRecord.moisture_percent),
         ).where(SoilMoistureRecord.observed_at >= cutoff)
         .group_by(_day_expr(SoilMoistureRecord.observed_at))
@@ -141,8 +141,10 @@ def district_risk(db: Session = Depends(get_db), user: User = Depends(get_curren
 def risk_trend(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     rows = db.execute(
-        select(RiskPrediction.predicted_at, func.avg(RiskPrediction.risk_score))
-        .where(RiskPrediction.predicted_at >= cutoff)
+        select(
+            _day_expr(RiskPrediction.predicted_at),
+            func.avg(RiskPrediction.risk_score),
+        ).where(RiskPrediction.predicted_at >= cutoff)
         .group_by(_day_expr(RiskPrediction.predicted_at))
     ).all()
     return [
@@ -155,8 +157,10 @@ def risk_trend(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def incidents_trend(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     rows = db.execute(
-        select(Incident.reported_at, func.count(Incident.id))
-        .where(Incident.reported_at >= cutoff)
+        select(
+            _day_expr(Incident.reported_at),
+            func.count(Incident.id),
+        ).where(Incident.reported_at >= cutoff)
         .group_by(_day_expr(Incident.reported_at))
     ).all()
     return [
