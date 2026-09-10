@@ -61,39 +61,68 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card lg:col-span-1">
-          <h3 className="font-semibold mb-3">{t("dashboard.rainfall")}</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={rainfall}>
-              <XAxis dataKey="date" fontSize={10} />
-              <YAxis fontSize={10} />
-              <Tooltip />
-              <Line type="monotone" dataKey="rain_24h" stroke="#2563eb" name="24h rain (mm)" />
-              <Line type="monotone" dataKey="rain_6h" stroke="#7c3aed" name="6h rain (mm)" />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">{t("dashboard.rainfall")}</h3>
+            {latest(rainfall, "rain_24h") && (
+              <span className="badge bg-blue-100 text-blue-700">now {latest(rainfall, "rain_24h")} mm/24h</span>
+            )}
+          </div>
+          {rainfall.length === 0 ? (
+            <EmptyChart />
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={rainfall}>
+                <XAxis dataKey="date" fontSize={10} />
+                <YAxis fontSize={10} />
+                <Tooltip />
+                <Line type="monotone" dataKey="rain_24h" stroke="#2563eb" name="24h rain (mm)" />
+                <Line type="monotone" dataKey="rain_6h" stroke="#7c3aed" name="6h rain (mm)" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
-        <div className="card lg:col-span-1">
-          <h3 className="font-semibold mb-3">{t("dashboard.soil_moisture")}</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={soil}>
-              <XAxis dataKey="date" fontSize={10} />
-              <YAxis fontSize={10} />
-              <Tooltip />
-              <Line type="monotone" dataKey="moisture" stroke="#16a34a" name="moisture %" />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">{t("dashboard.soil_moisture")}</h3>
+            {latest(soil, "moisture") && (
+              <span className="badge bg-green-100 text-green-700">
+                now {latest(soil, "moisture")}%{latest(soil, "moisture") >= 70 ? " ⚠ saturated" : ""}
+              </span>
+            )}
+          </div>
+          {soil.length === 0 ? (
+            <EmptyChart />
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={soil}>
+                <XAxis dataKey="date" fontSize={10} />
+                <YAxis fontSize={10} domain={[0, 100]} />
+                <Tooltip />
+                <Line type="monotone" dataKey="moisture" stroke="#16a34a" name="moisture %" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
-        <div className="card lg:col-span-1">
-          <h3 className="font-semibold mb-3">{t("dashboard.risk_trend")}</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={riskTrend}>
-              <XAxis dataKey="date" fontSize={10} />
-              <YAxis fontSize={10} domain={[0, 100]} />
-              <Tooltip />
-              <Line type="monotone" dataKey="risk" stroke="#ef4444" name="avg risk" />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">{t("dashboard.risk_trend")}</h3>
+            {latest(riskTrend, "risk") && (
+              <span className="badge bg-red-100 text-red-700">avg {latest(riskTrend, "risk")}</span>
+            )}
+          </div>
+          {riskTrend.length === 0 ? (
+            <EmptyChart />
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={riskTrend}>
+                <XAxis dataKey="date" fontSize={10} />
+                <YAxis fontSize={10} domain={[0, 100]} />
+                <Tooltip />
+                <Line type="monotone" dataKey="risk" stroke="#ef4444" name="avg risk" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -176,6 +205,20 @@ function KPI({ label, value, color }: { label: string; value?: number; color: st
     <div className="card">
       <div className="text-xs text-slate-500 mb-1">{label}</div>
       <div className={`kpi-value ${color}`}>{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function latest(rows: any[], key: string): string | null {
+  const last = rows[rows.length - 1];
+  return last && last[key] != null ? String(last[key]) : null;
+}
+
+function EmptyChart() {
+  const { t } = useTranslation();
+  return (
+    <div className="h-[220px] flex items-center justify-center text-sm text-slate-400">
+      {t("dashboard.no_data", "No data yet")}
     </div>
   );
 }

@@ -2,9 +2,10 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, require_min_role
 from app.db.session import get_db
 from app.models.environment import RainfallRecord, Sensor, SoilMoistureRecord
@@ -20,6 +21,21 @@ from app.models.risk import (
 from app.schemas.domain import DashboardSummary
 
 router = APIRouter()
+
+
+def _day_expr(col):
+    """Portable date truncation: func.date() works on SQLite, CAST works on Postgres."""
+    if settings.is_sqlite:
+        return func.date(col)
+    return cast(col, Date)
+
+
+def _day_key(value) -> str:
+    """Normalize a date/datetime/string value to YYYY-MM-DD for chart grouping."""
+    if value is None:
+        return ""
+    s = value.isoformat() if hasattr(value, "isoformat") else str(value)
+    return s[:10]
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -85,11 +101,11 @@ def rainfall_trend(db: Session = Depends(get_db), user: User = Depends(get_curre
             func.avg(RainfallRecord.rain_24h),
             func.avg(RainfallRecord.rain_6h),
         ).where(RainfallRecord.observed_at >= cutoff)
-        .group_by(func.date(RainfallRecord.observed_at))
+        .group_by(_day_expr(RainfallRecord.observed_at))
     ).all()
     return [
         {
-            "date": r[0].date().isoformat() if r[0] else "",
+            "date": _day_key(r[0]),
             "rain_24h": round(float(r[1] or 0), 1),
             "rain_6h": round(float(r[2] or 0), 1),
         }
@@ -105,10 +121,10 @@ def soil_moisture_trend(db: Session = Depends(get_db), user: User = Depends(get_
             SoilMoistureRecord.observed_at,
             func.avg(SoilMoistureRecord.moisture_percent),
         ).where(SoilMoistureRecord.observed_at >= cutoff)
-        .group_by(func.date(SoilMoistureRecord.observed_at))
+        .group_by(_day_expr(SoilMoistureRecord.observed_at))
     ).all()
     return [
-        {"date": r[0].date().isoformat() if r[0] else "", "moisture": round(float(r[1] or 0), 1)}
+        {"date": _day_key(r[0]), "moisture": round(float(r[1] or 0), 1)}
         for r in rows
     ]
 
@@ -127,10 +143,10 @@ def risk_trend(db: Session = Depends(get_db), user: User = Depends(get_current_u
     rows = db.execute(
         select(RiskPrediction.predicted_at, func.avg(RiskPrediction.risk_score))
         .where(RiskPrediction.predicted_at >= cutoff)
-        .group_by(func.date(RiskPrediction.predicted_at))
+        .group_by(_day_expr(RiskPrediction.predicted_at))
     ).all()
     return [
-        {"date": r[0].date().isoformat() if r[0] else "", "risk": round(float(r[1] or 0), 1)}
+        {"date": _day_key(r[0]), "risk": round(float(r[1] or 0), 1)}
         for r in rows
     ]
 
@@ -141,10 +157,10 @@ def incidents_trend(db: Session = Depends(get_db), user: User = Depends(get_curr
     rows = db.execute(
         select(Incident.reported_at, func.count(Incident.id))
         .where(Incident.reported_at >= cutoff)
-        .group_by(func.date(Incident.reported_at))
+        .group_by(_day_expr(Incident.reported_at))
     ).all()
     return [
-        {"date": r[0].date().isoformat() if r[0] else "", "count": int(r[1])}
+        {"date": _day_key(r[0]), "count": int(r[1])}
         for r in rows
     ]
 

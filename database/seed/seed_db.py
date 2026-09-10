@@ -8,7 +8,7 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -318,6 +318,50 @@ def seed(db: Session):
     # Risk predictions history
     if not db.scalar(select(RiskPrediction).limit(1)):
         for _ in range(25):
+            di = rng.choice(all_districts)
+            score = round(rng.uniform(20, 95), 1)
+            db.add(RiskPrediction(
+                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                risk_score=score,
+                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61 else "MODERATE" if score >= 41 else "LOW"),
+                confidence=round(rng.uniform(0.6, 0.95), 2),
+                factors=json.dumps(["Heavy rainfall", "High soil moisture", "Steep slope"]),
+                factor_contributions=json.dumps([
+                    {"factor": "Heavy 24-hour rainfall", "contribution": 25},
+                    {"factor": "High soil moisture", "contribution": 20},
+                ]),
+                recommended_action="Increased monitoring recommended",
+                predicted_at=now - timedelta(hours=rng.randint(0, 48)),
+            ))
+        db.commit()
+
+    # Top-up fresh telemetry so the 7-day dashboard trends never go stale
+    # on demo deployments (seed may have run days ago).
+    last_rain = db.scalar(select(func.max(RainfallRecord.observed_at)))
+    if last_rain is None or (now - last_rain) > timedelta(hours=18):
+        for day in (0, 1):
+            for di in all_districts:
+                base_rain = rng.uniform(5, 60)
+                rain24 = round(base_rain + rng.uniform(0, 120), 2)
+                rain1 = round(base_rain * rng.uniform(0.5, 1.5), 2)
+                db.add(RainfallRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    amount_mm=rain24, intensity=rain1,
+                    rain_1h=rain1, rain_6h=round(rain1 * rng.uniform(3, 6), 2),
+                    rain_24h=rain24, rain_3d=round(rain24 * rng.uniform(2, 3.5), 2),
+                    rain_7d=round(rain24 * rng.uniform(4, 6), 2),
+                    observed_at=now - timedelta(days=day), is_demo=True,
+                ))
+                db.add(SoilMoistureRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    moisture_percent=round(rng.uniform(35, 96), 1),
+                    observed_at=now - timedelta(days=day),
+                ))
+        db.commit()
+
+    last_pred = db.scalar(select(func.max(RiskPrediction.predicted_at)))
+    if last_pred is None or (now - last_pred) > timedelta(hours=18):
+        for _ in range(4):
             di = rng.choice(all_districts)
             score = round(rng.uniform(20, 95), 1)
             db.add(RiskPrediction(
