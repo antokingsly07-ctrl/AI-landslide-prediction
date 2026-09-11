@@ -455,9 +455,17 @@ def remove_demo_data(db: Session) -> None:
     # before real-data migration belongs to the legacy demo era. A real super
     # admin is created afterwards via BOOTSTRAP_ADMIN_* or first registration.
     user_count = db.scalar(select(func.count(User.id))) or 0
-    _safe_delete(db, delete(User), "users")
+    try:
+        db.execute(delete(User))
+    except Exception as exc:  # pragma: no cover - report the real constraint
+        db.rollback()
+        raise RuntimeError(f"user purge failed: {exc!r}") from exc
     db.commit()
     print(f"Purged demo data (removed {user_count} pre-migration accounts).")
+
+
+def has_demo_leftovers(db: Session) -> bool:
+    return (db.scalar(select(func.count(User.id)).where(User.email.like("%@landslide.demo"))) or 0) > 0
 
 
 def seed(db: Session):
@@ -504,26 +512,47 @@ def ensure_bootstrap_admin() -> None:
 def run_migration():
     """Synchronous, fast one-time migration: purge demo data + reference geo,
     then mark the real-data generation. Called at startup so demo accounts are
-    gone before the API serves requests."""
+    gone before the API serves requests. The marker is only written after the
+    purge is *verified*, so a partially-failed purge retries on the next boot."""
     db = SessionLocal()
     try:
         marker = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
+        marker_err = None
         if marker is not None:
+            marker_err = (json.loads(marker.value) or {}).get("error")
+        needs_purge = (
+            marker is None
+            or (marker_err is not None)
+            or has_demo_leftovers(db)
+        )
+        if needs_purge:
+            print("Real-data migration: purging legacy demo dataset…")
+            remove_demo_data(db)
+            if has_demo_leftovers(db):
+                raise RuntimeError("purge left demo-era accounts behind")
             ensure_roles(db)
             ensure_geo(db)
-            return
-        print("Real-data migration: purging legacy demo dataset…")
-        remove_demo_data(db)
-        ensure_roles(db)
-        ensure_geo(db)
+            verbose = {
+                "generation": 1,
+                "at": utcnow().isoformat(),
+                "error": None,
+                "purged_users": True,
+            }
+        else:
+            ensure_roles(db)
+            ensure_geo(db)
+            verbose = {"generation": 1, "at": (marker.value and None) or None,
+                       "error": None}
         current = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
         if current is None:
             db.add(SystemConfig(
                 key=MIGRATION_KEY,
-                value=json.dumps({"generation": 1, "at": utcnow().isoformat(), "error": None}),
+                value=json.dumps(verbose),
                 description="Real-data seed generation marker",
             ))
-            db.commit()
+        else:
+            current.value = json.dumps(verbose)
+        db.commit()
         print("Real-data migration complete.")
     except Exception as exc:  # pragma: no cover - report diagnostic through health
         import traceback
@@ -531,17 +560,20 @@ def run_migration():
         traceback.print_exc()
         try:
             current = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
+            failing = {
+                "generation": 1,
+                "at": utcnow().isoformat(),
+                "error": repr(exc),
+            }
             if current is None:
                 db.add(SystemConfig(
                     key=MIGRATION_KEY,
-                    value=json.dumps({
-                        "generation": 1,
-                        "at": utcnow().isoformat(),
-                        "error": repr(exc),
-                    }),
+                    value=json.dumps(failing),
                     description="Real-data seed generation marker (migration error)",
                 ))
-                db.commit()
+            else:
+                current.value = json.dumps(failing)
+            db.commit()
         except Exception:  # pragma: no cover
             pass
         raise
