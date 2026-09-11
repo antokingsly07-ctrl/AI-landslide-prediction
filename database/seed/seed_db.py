@@ -39,6 +39,7 @@ from app.models.risk import (
     EmergencyResponse,
     FieldReport,
     Incident,
+    UploadedMedia,
     NotificationLog,
     RiskPrediction,
     RiskZone,
@@ -441,6 +442,11 @@ def remove_demo_data(db: Session) -> None:
         (delete(RainfallRecord).where(RainfallRecord.is_demo == True), "rainfall"),  # noqa: E712
         (delete(SoilMoistureRecord).where(SoilMoistureRecord.source == "mock"), "soil_moisture"),
         (delete(WeatherRecord).where(WeatherRecord.source == "mock"), "weather"),
+        # Tables that hold user references (audit, media, system config). These
+        # must go before the users purge or DELETE FROM users violates the FK.
+        (delete(AuditLog), "audit_logs"),
+        (delete(UploadedMedia), "uploaded_media"),
+        (delete(SystemConfig), "system_configs"),
     ):
         _safe_delete(db, stmt, label)
     # Migration purge removes every pre-migration account: any account created
