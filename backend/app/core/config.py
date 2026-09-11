@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     IMD_TOKEN_URL: str = ""
     IMD_STATE_ID: int = 24
     IMD_STATION_ID: str = ""
+    SATELLITE_SOURCE: str = "auto"
     SATELLITE_API_KEY: str = ""
-    SATELLITE_BASE_URL: str = ""
+    SATELLITE_BASE_URL: str = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
     TERRAIN_API_KEY: str = ""
     TERRAIN_BASE_URL: str = ""
 

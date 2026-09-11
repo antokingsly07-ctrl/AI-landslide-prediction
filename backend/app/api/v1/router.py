@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     reports,
     risk,
     roads,
+    satellite,
     sensors,
     sync,
     weather,
@@ -31,5 +32,6 @@ api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
 api_router.include_router(media.router, prefix="/media", tags=["Media"])
 api_router.include_router(alerts.router, prefix="/alerts", tags=["Alerts"])
 api_router.include_router(roads.router, prefix="/roads", tags=["Roads"])
+api_router.include_router(satellite.router, prefix="/satellite", tags=["Satellite"])
 api_router.include_router(sync.router, prefix="/sync", tags=["Offline Sync"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
