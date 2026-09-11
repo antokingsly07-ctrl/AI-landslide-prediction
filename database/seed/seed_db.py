@@ -36,6 +36,7 @@ from app.models.environment import (
 from app.models.geo import District, Infrastructure, Role, State, User, Village
 from app.models.risk import (
     Alert,
+    AuditLog,
     EmergencyResponse,
     FieldReport,
     Incident,
