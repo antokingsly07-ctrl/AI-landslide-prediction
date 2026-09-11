@@ -44,6 +44,7 @@ from app.models.risk import (
     RiskPrediction,
     RiskZone,
     Road,
+    RoadStatusHistory,
     SystemConfig,
 )
 from app.services.nasa_power_service import get_daily_series, get_recent
@@ -434,6 +435,7 @@ def remove_demo_data(db: Session) -> None:
         (delete(RiskZone), "risk_zones"),
         (delete(Infrastructure), "infrastructure"),
         (delete(Road), "roads"),
+        (delete(RoadStatusHistory), "road_status_history"),
         (delete(SensorReading), "sensor_readings"),
         (delete(Sensor), "sensors"),
         (delete(LandslideHistory), "landslide_history"),
