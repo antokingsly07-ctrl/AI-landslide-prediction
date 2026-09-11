@@ -1,6 +1,6 @@
 """Authentication endpoints: login, register, language, profile."""
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_min_role
@@ -42,7 +42,11 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status_code=409, detail="Email already registered")
     requested_role = payload.role or "citizen"
-    if requested_role not in PUBLIC_REGISTER_ROLES:
+    # First registered user becomes the platform super admin (no demo accounts).
+    user_count = db.scalar(select(func.count(User.id))) or 0
+    if user_count == 0:
+        requested_role = "super_admin"
+    elif requested_role not in PUBLIC_REGISTER_ROLES:
         raise HTTPException(
             status_code=403,
             detail=f"Self-registration only allowed for roles: {', '.join(PUBLIC_REGISTER_ROLES)}",

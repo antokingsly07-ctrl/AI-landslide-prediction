@@ -1,16 +1,27 @@
-"""Seed realistic demo data for North-Eastern Indian states/districts.
+"""Seed production-grade real data for North-Eastern India.
 
-All data is clearly simulated for demonstration purposes only. It is never
-presented as live government data in the UI.
+Only real data sources are used; nothing is simulated:
+
+  * States / districts / villages  - real named administrative units of NE India
+  * Terrain  - SRTM elevation via Open-Meteo (keyless)
+  * Rainfall / soil moisture / weather - NASA POWER (MERRA-2 satellite-assimilated
+    reanalysis, keyless)
+  * Landslide history  - NASA Global Landslide Catalog (real events)
+  * Risk zones  - computed by the platform's risk engine from the real data above
+
+Sources that fail are skipped rather than faked. A one-time migration marker in
+SystemConfig purges the legacy demo dataset, then the real seed runs once.
 """
+import csv
+import io
 import json
-import random
-import uuid
-from datetime import datetime, timedelta, timezone
+import urllib.request
+from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.environment import (
@@ -28,17 +39,21 @@ from app.models.risk import (
     EmergencyResponse,
     FieldReport,
     Incident,
+    NotificationLog,
     RiskPrediction,
     RiskZone,
     Road,
+    SystemConfig,
 )
+from app.services.nasa_power_service import get_daily_series, get_recent
+from app.services.terrain_service import get_terrain
 
 
 def utcnow():
     return datetime.now(timezone.utc)
 
 
-# North East states with real districts (with approx centroids)
+# Real NE India states with genuine districts (centroids approximate)
 STATES = [
     {"code": "AS", "name": "Assam", "districts": [
         {"name": "Kamrup Metropolitan", "lat": 26.14, "lon": 91.73, "pop": 1253938},
@@ -77,28 +92,37 @@ ROLES = [
     ("citizen", "Public users"),
 ]
 
-SANDBOX_USER_CREDENTIALS = {
-    "super_admin@landslide.demo": ("Super Admin", "admin123", "super_admin", None),
-    "district@landslide.demo": ("District Admin", "district123", "district_admin", "Aizawl"),
-    "disaster@landslide.demo": ("Disaster Mgmt", "disaster123", "disaster_mgmt", None),
-    "field@landslide.demo": ("Field Official", "field123", "field_official", "East Khasi Hills"),
-    "citizen@landslide.demo": ("Citizen", "citizen123", "citizen", None),
-}
-
-VILLAGE_NAMES = [
-    "Zokhawsang", "Mawphlang", "Cherrapunjee", "Sohra", "Laitmawsiang",
-    "Umiam", "Shillong Peak", "Laitlyngkot", "Mawsynram", "Pynursla",
-    "Dawki", "Amlaren", "Champhai", "Lunglei Town", "Serchhip",
-    "Thenzawl", "Hmunsang", "Kolasib", "Chamring", "Vairengte",
+# Real settlements (village / town) in the seeded districts
+REAL_VILLAGES = [
+    ("Cherrapunjee", "ML", "East Khasi Hills", 25.2805, 91.7281),
+    ("Mawphlang", "ML", "East Khasi Hills", 25.2156, 91.7531),
+    ("Mawsynram", "ML", "East Khasi Hills", 25.3008, 91.5833),
+    ("Laitlyngkot", "ML", "East Khasi Hills", 25.1950, 91.7920),
+    ("Pynursla", "ML", "East Khasi Hills", 25.3000, 91.8900),
+    ("Dawki", "ML", "East Khasi Hills", 25.1833, 92.0190),
+    ("Tura", "ML", "West Garo Hills", 25.5000, 90.2028),
+    ("Nongpoh", "ML", "Ri Bhoi", 25.9000, 91.8800),
+    ("Haflong", "AS", "Dima Hasao", 25.1647, 92.9310),
+    ("Silchar", "AS", "Cachar", 24.8271, 92.7970),
+    ("Karimganj", "AS", "Karimganj", 24.8700, 92.3567),
+    ("Aizawl", "MZ", "Aizawl", 23.7271, 92.7176),
+    ("Lunglei", "MZ", "Lunglei", 22.8810, 92.7420),
+    ("Kamalpur", "TR", "Dhalai", 24.1900, 91.8000),
+    ("Udaipur", "TR", "Gomati", 23.5400, 91.4800),
+    ("Kohima", "NL", "Kohima", 25.6747, 94.1086),
+    ("Dimapur", "NL", "Dimapur", 25.9097, 93.7314),
+    ("Churachandpur", "MN", "Churachandpur", 24.3333, 93.6900),
+    ("Imphal", "MN", "Imphal West", 24.8170, 93.9368),
 ]
 
-ROAD_SUFFIXES = ["National Highway", "State Highway", "District Road", "Village Road", "Border Road"]
+NE_STATES = {"Assam", "Meghalaya", "Mizoram", "Tripura", "Nagaland", "Manipur",
+             "Arunachal Pradesh", "Sikkim"}
+NE_BBOX = {"lat_min": 21.0, "lat_max": 29.5, "lon_min": 88.5, "lon_max": 97.6}
+GLC_CSV_URL = "https://data.nasa.gov/docs/legacy/Global_Landslide_Catalog_Export/Global_Landslide_Catalog_Export_rows.csv"
+MIGRATION_KEY = "real_data_generation"
 
-INFRA_TYPES = ["hospital", "school", "emergency_service", "bridge", "power_station"]
 
-
-def seed(db: Session):
-    # Roles
+def ensure_roles(db: Session) -> dict[str, Role]:
     roles = {}
     for name, desc in ROLES:
         obj = db.scalar(select(Role).where(Role.name == name))
@@ -107,14 +131,14 @@ def seed(db: Session):
             db.add(obj)
         roles[name] = obj
     db.commit()
+    return roles
 
-    # States + districts + villages + roads + infra + sensors
+
+def ensure_geo(db: Session) -> tuple[dict[str, State], dict[tuple, District], list[Village]]:
+    """Real states, districts and villages (idempotent upsert)."""
     state_objs = {}
     district_objs = {}
-    all_villages = []
-    all_roads = []
-    rng = random.Random(42)
-
+    villages = []
     for st in STATES:
         so = db.scalar(select(State).where(State.code == st["code"]))
         if not so:
@@ -123,334 +147,358 @@ def seed(db: Session):
             db.flush()
         state_objs[st["code"]] = so
         for d in st["districts"]:
-            di = db.scalar(select(District).where(District.code == f"{st['code']}-{d['name']}"))
+            code = f"{st['code']}-{d['name']}"
+            di = db.scalar(select(District).where(District.code == code))
             if not di:
-                di = District(
-                    code=f"{st['code']}-{d['name']}",
-                    name=d["name"],
-                    state_id=so.id,
-                    latitude=d["lat"],
-                    longitude=d["lon"],
-                    population=d["pop"],
-                    risk_score=round(rng.uniform(20, 85), 1),
-                )
+                di = District(code=code, name=d["name"], state_id=so.id)
                 db.add(di)
-                db.flush()
+            di.latitude = d["lat"]
+            di.longitude = d["lon"]
+            di.population = d["pop"]
+            di.risk_score = 0.0
+            db.flush()
             district_objs[(st["code"], d["name"])] = di
-
-            # villages
-            for i in range(6):
-                vname = rng.choice(VILLAGE_NAMES) + f" {i+1} {d['name']}"
-                v = db.scalar(select(Village).where(Village.name == vname))
-                if not v:
-                    v = Village(
-                        name=vname,
-                        district_id=di.id,
-                        latitude=round(d["lat"] + rng.uniform(-0.15, 0.15), 5),
-                        longitude=round(d["lon"] + rng.uniform(-0.15, 0.15), 5),
-                        population=rng.randint(500, 20000),
-                        risk_score=round(rng.uniform(20, 90), 1),
-                    )
-                    db.add(v)
-                    db.flush()
-                all_villages.append(v)
-
-            # roads
-            if not db.scalar(select(Road).where(Road.district_id == di.id).limit(1)):
-                for _j in range(4):
-                    rname = f"{d['name']} {ROAD_SUFFIXES[rng.randrange(len(ROAD_SUFFIXES))]} {_j+1}"
-                    r = db.scalar(select(Road).where(Road.name == rname))
-                    if not r:
-                        r = Road(
-                            name=rname,
-                            road_type=rng.choice(["highway", "state", "district", "village"]),
-                            district_id=di.id,
-                            latitude=round(d["lat"] + rng.uniform(-0.2, 0.2), 5),
-                            longitude=round(d["lon"] + rng.uniform(-0.2, 0.2), 5),
-                            status=rng.choice(["open", "open", "open", "restricted", "blocked"]),
-                            population_served=rng.randint(1000, 200000),
-                            alternative_route=rng.random() > 0.3,
-                            priority_score=round(rng.uniform(0, 100), 1),
-                    )
-                    db.add(r)
-                    db.flush()
-                all_roads.append(r)
-
-            # infrastructure
-            for k in range(3):
-                it = INFRA_TYPES[rng.randrange(len(INFRA_TYPES))]
-                iname = f"{d['name']} {it.title()} {k+1}"
-                if not db.scalar(select(Infrastructure).where(Infrastructure.name == iname)):
-                    db.add(Infrastructure(
-                        name=iname,
-                        infra_type=it,
-                        district_id=di.id,
-                        village_id=rng.choice(all_villages).id if all_villages else None,
-                        latitude=round(d["lat"] + rng.uniform(-0.1, 0.1), 5),
-                        longitude=round(d["lon"] + rng.uniform(-0.1, 0.1), 5),
-                        importance=rng.randint(2, 5),
-                        population_served=rng.randint(500, 50000),
-                    ))
-
-            # sensors
-            for stype in ["soil_moisture", "rain_gauge", "tilt", "ground_movement", "temperature"]:
-                sname = f"{d['name']} {stype.replace('_', ' ').title()} Sensor"
-                if not db.scalar(select(Sensor).where(Sensor.name == sname)):
-                    db.add(Sensor(
-                        name=sname,
-                        sensor_type=stype,
-                        district_id=di.id,
-                        latitude=round(d["lat"] + rng.uniform(-0.12, 0.12), 5),
-                        longitude=round(d["lon"] + rng.uniform(-0.12, 0.12), 5),
-                        status="online",
-                        api_token=f"tok_{uuid.uuid4().hex[:16]}",
-                    ))
     db.commit()
 
-    # Demo users
-    users = {}
-    for email, (fname, pw, role, dist) in SANDBOX_USER_CREDENTIALS.items():
-        u = db.scalar(select(User).where(User.email == email))
-        did = None
-        if dist:
-            for (code, dname), dobj in district_objs.items():
-                if dname == dist:
-                    did = dobj.id
-                    break
-        if not u:
-            u = User(
-                email=email,
-                full_name=fname,
-                hashed_password=hash_password(pw),
-                role_id=roles[role].id,
-                district_id=did,
-                phone=f"+91 9{rng.randint(10000000, 99999999)}",
-                preferred_language=rng.choice(["en", "hi", "as", "bn"]),
-            )
-            db.add(u)
-        users[role] = u
+    # Real villages: insert only the ones that are missing
+    for vname, scode, dname, lat, lon in REAL_VILLAGES:
+        di = district_objs.get((scode, dname))
+        if di is None:
+            continue
+        existing = db.scalar(select(Village).where(
+            Village.name == vname, Village.district_id == di.id))
+        if existing:
+            villages.append(existing)
+            continue
+        v = Village(
+            name=vname, district_id=di.id, latitude=lat, longitude=lon,
+            population=0, risk_score=0.0,
+        )
+        db.add(v)
+        villages.append(v)
     db.commit()
+    return state_objs, district_objs, villages
 
-    # Timeseries environmental data over the last 7 days
-    now = utcnow()
-    all_districts = list(district_objs.values())
-    if not db.scalar(select(RainfallRecord).limit(1)):
-        for day in range(7, -1, -1):
-            for di in all_districts:
-                base_rain = rng.uniform(5, 60)
-                rain24 = round(base_rain + rng.uniform(0, 150), 2)
-                rain1 = round(base_rain * rng.uniform(0.5, 1.5), 2)
-                db.add(RainfallRecord(
-                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    amount_mm=rain24, intensity=rain1,
-                    rain_1h=rain1, rain_6h=round(rain1 * rng.uniform(3, 6), 2),
-                    rain_24h=rain24, rain_3d=round(rain24 * rng.uniform(2, 3.5), 2),
-                    rain_7d=round(rain24 * rng.uniform(4, 6), 2),
-                    observed_at=now - timedelta(days=day), is_demo=True,
-                ))
+
+def seed_terrain(db: Session, district_objs: dict, villages: list[Village]) -> int:
+    """Real SRTM elevation/slope for every district and village."""
+    if db.scalar(select(TerrainData).limit(1)):
+        return 0
+    points = []
+    for di in district_objs.values():
+        points.append((di.name, di.latitude, di.longitude, di))
+    for v in villages:
+        points.append((v.name, v.latitude, v.longitude, v))
+    count = 0
+    for name, lat, lon, ref in points:
+        try:
+            t = get_terrain(lat, lon)
+            db.add(TerrainData(
+                latitude=lat, longitude=lon,
+                district_id=ref.id if isinstance(ref, District) else ref.district_id,
+                slope_deg=t["slope_deg"], elevation_m=t["elevation_m"],
+                aspect=t["aspect"], curvature=0.0, land_cover="unknown",
+                geology="unknown", distance_to_roads_m=0.0,
+            ))
+            count += 1
+        except Exception as exc:  # pragma: no cover - network failure
+            print(f"Terrain fetch skipped for {name}: {exc}")
+    db.commit()
+    print(f"Seeded {count} real SRTM terrain rows.")
+    return count
+
+
+def seed_power_environment(db: Session, district_objs: dict) -> int:
+    """Real NASA POWER daily rainfall/soil-moisture/weather for the last 8 days."""
+    if db.scalar(select(RainfallRecord).limit(1)):
+        return 0
+    count = 0
+    for st, di in district_objs.items():
+        try:
+            rows = get_daily_series(di.latitude, di.longitude, days=8)
+        except Exception as exc:  # pragma: no cover - network failure
+            print(f"NASA POWER fetch skipped for {di.name}: {exc}")
+            continue
+        rain3 = []
+        rain7 = []
+        for row in rows:
+            if row["rain_mm"] is not None:
+                rain3.append(row["rain_mm"])
+                rain7.append(row["rain_mm"])
+            rain3 = rain3[-3:]
+            rain7 = rain7[-7:]
+            date = datetime.strptime(row["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            db.add(RainfallRecord(
+                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                amount_mm=row["rain_mm"] or 0.0, intensity=0.0,
+                rain_1h=0.0, rain_6h=0.0,
+                rain_24h=row["rain_mm"] or 0.0,
+                rain_3d=round(sum(rain3), 1) if rain3 else 0.0,
+                rain_7d=round(sum(rain7), 1) if rain7 else 0.0,
+                observed_at=date, source="nasa-power", is_demo=False,
+            ))
+            if row["soil_moisture_pct"] is not None:
                 db.add(SoilMoistureRecord(
                     latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    moisture_percent=round(rng.uniform(35, 96), 1),
-                    observed_at=now - timedelta(days=day),
+                    moisture_percent=row["soil_moisture_pct"], depth_cm=30.0,
+                    observed_at=date, source="nasa-power",
                 ))
+            if row["temperature_c"] is not None:
                 db.add(WeatherRecord(
                     latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    temperature_c=round(rng.uniform(18, 30), 1),
-                    humidity_percent=round(rng.uniform(65, 98), 1),
-                    precipitation_mm=rain24, forecast="Monsoon showers",
+                    temperature_c=row["temperature_c"],
+                    humidity_percent=row["humidity_pct"] or 0.0,
+                    pressure_hpa=0.0, wind_speed=0.0,
+                    precipitation_mm=row["rain_mm"] or 0.0,
+                    forecast="", warning="none",
+                    observed_at=date, source="nasa-power",
                 ))
-                db.add(TerrainData(
-                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    slope_deg=round(rng.uniform(10, 45), 1),
-                    elevation_m=round(rng.uniform(200, 1800), 1),
-                    land_cover=rng.choice(["forest", "shrubland", "cropland"]),
-                    distance_to_roads_m=round(rng.uniform(20, 500), 1),
-                ))
-        db.commit()
-
-    # Sensor readings (latest)
-    sensors = db.scalars(select(Sensor)).all()
-    if not db.scalar(select(SensorReading).limit(1)):
-        for s in sensors:
-            n = rng.randint(3, 8)
-            for i in range(n):
-                val = {"soil_moisture": (40, 15), "rain_gauge": (25, 20), "tilt": (2, 3),
-                       "ground_movement": (5, 8), "temperature": (24, 5)}.get(s.sensor_type, (0, 1))
-                db.add(SensorReading(
-                    sensor_id=s.id, reading_type=s.sensor_type,
-                    value=round(max(0, rng.gauss(val[0], val[1])), 2),
-                    unit={"soil_moisture": "%", "rain_gauge": "mm", "tilt": "deg",
-                          "ground_movement": "mm", "temperature": "C"}.get(s.sensor_type, ""),
-                    read_at=now - timedelta(hours=i),
-                ))
-        db.commit()
-
-    # Historical landslides
-    if not db.scalar(select(LandslideHistory).limit(1)):
-        for _ in range(40):
-            di = rng.choice(all_districts)
-            db.add(LandslideHistory(
-                latitude=di.latitude + rng.uniform(-0.1, 0.1),
-                longitude=di.longitude + rng.uniform(-0.1, 0.1),
-                district_id=di.id,
-                severity=rng.randint(1, 5),
-                cause=rng.choice(["rainfall", "rainfall", "earthquake", "human_activity"]),
-                year=rng.randint(1998, 2025),
-                occurred_on=now - timedelta(days=rng.randint(30, 9000)),
-            ))
-        db.commit()
-
-    # Risk zones
-    if not db.scalar(select(RiskZone).limit(1)):
-        for v in all_villages[:60]:
-            score = round(rng.uniform(15, 95), 1)
-            db.add(RiskZone(
-                name=v.name + " Zone",
-                risk_score=score,
-                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61
-                            else "MODERATE" if score >= 41 else "LOW" if score >= 21 else "VERY_LOW"),
-                latitude=v.latitude, longitude=v.longitude,
-                district_id=v.district_id, village_id=v.id,
-                population=v.population, area_km2=round(rng.uniform(0.5, 8), 2),
-            ))
-        db.commit()
-
-    # Risk predictions history
-    if not db.scalar(select(RiskPrediction).limit(1)):
-        for _ in range(25):
-            di = rng.choice(all_districts)
-            score = round(rng.uniform(20, 95), 1)
-            db.add(RiskPrediction(
-                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                risk_score=score,
-                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61 else "MODERATE" if score >= 41 else "LOW"),
-                confidence=round(rng.uniform(0.6, 0.95), 2),
-                factors=json.dumps(["Heavy rainfall", "High soil moisture", "Steep slope"]),
-                factor_contributions=json.dumps([
-                    {"factor": "Heavy 24-hour rainfall", "contribution": 25},
-                    {"factor": "High soil moisture", "contribution": 20},
-                ]),
-                recommended_action="Increased monitoring recommended",
-                predicted_at=now - timedelta(hours=rng.randint(0, 48)),
-            ))
-        db.commit()
-
-    # Top-up fresh telemetry so the 7-day dashboard trends never go stale
-    # on demo deployments (seed may have run days ago).
-    last_rain = db.scalar(select(func.max(RainfallRecord.observed_at)))
-    if last_rain is None or (now - last_rain) > timedelta(hours=18):
-        for day in (0, 1):
-            for di in all_districts:
-                base_rain = rng.uniform(5, 60)
-                rain24 = round(base_rain + rng.uniform(0, 120), 2)
-                rain1 = round(base_rain * rng.uniform(0.5, 1.5), 2)
-                db.add(RainfallRecord(
-                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    amount_mm=rain24, intensity=rain1,
-                    rain_1h=rain1, rain_6h=round(rain1 * rng.uniform(3, 6), 2),
-                    rain_24h=rain24, rain_3d=round(rain24 * rng.uniform(2, 3.5), 2),
-                    rain_7d=round(rain24 * rng.uniform(4, 6), 2),
-                    observed_at=now - timedelta(days=day), is_demo=True,
-                ))
-                db.add(SoilMoistureRecord(
-                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                    moisture_percent=round(rng.uniform(35, 96), 1),
-                    observed_at=now - timedelta(days=day),
-                ))
-        db.commit()
-
-    last_pred = db.scalar(select(func.max(RiskPrediction.predicted_at)))
-    if last_pred is None or (now - last_pred) > timedelta(hours=18):
-        for _ in range(4):
-            di = rng.choice(all_districts)
-            score = round(rng.uniform(20, 95), 1)
-            db.add(RiskPrediction(
-                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                risk_score=score,
-                risk_level=("CRITICAL" if score >= 81 else "HIGH" if score >= 61 else "MODERATE" if score >= 41 else "LOW"),
-                confidence=round(rng.uniform(0.6, 0.95), 2),
-                factors=json.dumps(["Heavy rainfall", "High soil moisture", "Steep slope"]),
-                factor_contributions=json.dumps([
-                    {"factor": "Heavy 24-hour rainfall", "contribution": 25},
-                    {"factor": "High soil moisture", "contribution": 20},
-                ]),
-                recommended_action="Increased monitoring recommended",
-                predicted_at=now - timedelta(hours=rng.randint(0, 48)),
-            ))
-        db.commit()
-
-    # Incidents
-    if not db.scalar(select(Incident).limit(1)):
-        inc = Incident(
-            incident_type="slope_crack", severity="high", status="response",
-            verification_status="verified",
-            description="Large cracks observed near hillside road leading to village.",
-            latitude=24.81, longitude=92.80, district_id=district_objs[("AS", "Cachar")].id,
-            reported_by=users["field_official"].id,
-        )
-        db.add(inc)
-        db.flush()
-        db.add(EmergencyResponse(
-            incident_id=inc.id,
-            priority_score=88.0,
-            priority_class="immediate",
-            population_affected=12500,
-        ))
-        inc2 = Incident(
-            incident_type="blocked_road", severity="critical", status="monitoring",
-            verification_status="verified",
-            description="Amlaren road fully blocked by landslide debris.",
-            latitude=25.57, longitude=91.88, district_id=district_objs[("ML", "East Khasi Hills")].id,
-            reported_by=users["citizen"].id,
-        )
-        db.add(inc2)
-        db.flush()
-        db.add(EmergencyResponse(
-            incident_id=inc2.id,
-            priority_score=82.0,
-            priority_class="high",
-            population_affected=8900,
-        ))
-        db.commit()
-
-    # Field reports tied to incidents
-    if not db.scalar(select(FieldReport).limit(1)):
-        db.add(FieldReport(
-            report_type="slope_crack", severity="high",
-            description="Crack widening along NH-6 section.",
-            latitude=24.81, longitude=92.80, district_id=district_objs[("AS", "Cachar")].id,
-            reported_by=users["field_official"].id,
-            incident_id=db.scalar(select(Incident).where(Incident.incident_type == "slope_crack").limit(1)).id,
-            sync_status="synced",
-        ))
-        db.commit()
-
-    # Alerts
-    if not db.scalar(select(Alert).limit(1)):
-        db.add(Alert(
-            title="Landslide Risk Warning: High",
-            message="A High landslide risk has been detected near Cachar (78/100). Increased monitoring recommended.",
-            severity="warning", alert_type="risk", status="active", risk_level="HIGH",
-            cause="AI risk prediction exceeded threshold",
-            recommended_action="Increased monitoring and preparedness",
-            district_id=district_objs[("AS", "Cachar")].id,
-            latitude=24.81, longitude=92.80,
-            affected_villages=json.dumps(["Village 1 Cachar", "Village 2 Cachar"]),
-            affected_roads=json.dumps(["NH-6"]),
-        ))
-        db.commit()
-
-    print("Seed complete.")
-
-    # assign users to global dict for emergencies
+            count += 1
     db.commit()
+    print(f"Seeded {count} real NASA POWER environmental records.")
+    return count
+
+
+def _nearest_district(district_objs: dict, lat: float, lon: float, max_deg: float = 1.5):
+    best = None
+    best_d = max_deg
+    for di in district_objs.values():
+        d = ((di.latitude - lat) ** 2 + (di.longitude - lon) ** 2) ** 0.5
+        if d < best_d:
+            best_d = d
+            best = di
+    return best
+
+
+def _parse_glc_date(value: str) -> datetime | None:
+    if not value:
+        return None
+    value = value.strip()
+    for fmt in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _glc_severity(size: str, deaths) -> int:
+    s = (size or "").lower()
+    if "very_large" in s:
+        return 5
+    if "large" in s:
+        return 4
+    if "medium" in s:
+        return 3
+    if "small" in s:
+        return 2
+    try:
+        if int(deaths or 0) >= 10:
+            return 4
+    except (TypeError, ValueError):
+        pass
+    return 2
+
+
+def _glc_cause(trigger: str) -> str:
+    t = (trigger or "").lower()
+    if "earthquake" in t:
+        return "earthquake"
+    if "human" in t or "anthropogenic" in t or "construction" in t:
+        return "human_activity"
+    if "rain" in t or "downpour" in t or "monsoon" in t or "storm" in t or "cyclone" in t:
+        return "rainfall"
+    if "mine" in t:
+        return "human_activity"
+    return "rainfall"
+
+
+def seed_landslides(db: Session, district_objs: dict) -> int:
+    """Real landslide history from the NASA Global Landslide Catalog (NE India)."""
+    if db.scalar(select(LandslideHistory).limit(1)):
+        return 0
+    try:
+        with urllib.request.urlopen(GLC_CSV_URL, timeout=90) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:  # pragma: no cover - network / firewall failure
+        print(f"NASA GLC fetch skipped: {exc}")
+        return 0
+
+    events = []
+    seen = set()
+    for row in csv.DictReader(io.StringIO(raw)):
+        try:
+            lat = float(row.get("latitude") or "")
+            lon = float(row.get("longitude") or "")
+        except (TypeError, ValueError):
+            continue
+        if not (NE_BBOX["lat_min"] <= lat <= NE_BBOX["lat_max"]
+                and NE_BBOX["lon_min"] <= lon <= NE_BBOX["lon_max"]):
+            continue
+        state = (row.get("admin_division_name") or "").strip()
+        country = (row.get("country_name") or "").strip()
+        if country.lower() != "india" and state not in NE_STATES:
+            continue
+        occurred = _parse_glc_date(row.get("event_date"))
+        if occurred is None:
+            continue
+        eid = row.get("event_id") or ""
+        if eid and eid in seen:
+            continue
+        seen.add(eid)
+        events.append((occurred, lat, lon, row))
+
+    events.sort(key=lambda e: e[0], reverse=True)
+    count = 0
+    for occurred, lat, lon, row in events[:120]:
+        di = _nearest_district(district_objs, lat, lon)
+        title = (row.get("event_title") or "").strip()
+        loc = (row.get("location_description") or "").strip()
+        deaths = (row.get("fatality_count") or "").strip()
+        desc = f"{title} — {loc}".strip(" —")
+        db.add(LandslideHistory(
+            latitude=lat, longitude=lon,
+            district_id=di.id if di else None,
+            occurred_on=occurred,
+            severity=_glc_severity(row.get("landslide_size"), deaths),
+            cause=_glc_cause(row.get("landslide_trigger")),
+            description=(desc or None),
+            year=occurred.year,
+        ))
+        count += 1
+    db.commit()
+    print(f"Seeded {count} real NASA GLC landslide events.")
+    return count
+
+
+def seed_risk_zones(db: Session, district_objs: dict, villages: list[Village]) -> int:
+    """Risk zones computed from real terrain / rainfall / soil moisture."""
+    if db.scalar(select(RiskZone).limit(1)):
+        return 0
+    from app.ml.risk_utils import risk_level_for_score
+
+    count = 0
+    for v in villages:
+        slope = None
+        td = db.scalar(select(TerrainData).where(
+            TerrainData.latitude == v.latitude, TerrainData.longitude == v.longitude))
+        if td:
+            slope = td.slope_deg
+        try:
+            recent = get_recent(v.latitude, v.longitude, days=7)
+        except Exception as exc:  # pragma: no cover - network failure
+            print(f"Risk-data fetch skipped for {v.name}: {exc}")
+            recent = None
+        if slope is None or recent is None or recent.get("soil_moisture_pct") is None:
+            continue
+        slope_contrib = min(40.0, slope / 45.0 * 40.0)
+        rain_contrib = min(35.0, (recent.get("rain_7d") or 0.0) / 300.0 * 35.0)
+        soil_contrib = min(25.0, recent.get("soil_moisture_pct", 0.0) / 95.0 * 25.0)
+        score = round(min(100.0, slope_contrib + rain_contrib + soil_contrib), 1)
+        level = risk_level_for_score(score)
+        db.add(RiskZone(
+            name=f"{v.name} Slope Stability Zone",
+            risk_score=score, risk_level=level,
+            latitude=v.latitude, longitude=v.longitude,
+            district_id=v.district_id, village_id=v.id,
+            population=v.population, area_km2=0.0,
+        ))
+        v.risk_score = score
+        db.flush()
+        count += 1
+    db.commit()
+    print(f"Computed {count} real-data risk zones.")
+    return count
+
+
+def remove_demo_data(db: Session) -> None:
+    """Purge the legacy demo dataset so only real data remains."""
+    db.execute(delete(NotificationLog))
+    db.execute(delete(EmergencyResponse))
+    db.execute(delete(FieldReport))
+    db.execute(delete(Alert))
+    db.execute(delete(Incident))
+    db.execute(delete(RiskPrediction))
+    db.execute(delete(RiskZone))
+    db.execute(delete(Infrastructure))
+    db.execute(delete(Road))
+    db.execute(delete(SensorReading))
+    db.execute(delete(Sensor))
+    db.execute(delete(LandslideHistory))
+    db.execute(delete(TerrainData))
+    db.execute(delete(Village).where(Village.name.notin_([r[0] for r in REAL_VILLAGES])))
+    db.execute(delete(RainfallRecord).where(RainfallRecord.is_demo == True))  # noqa: E712
+    db.execute(delete(SoilMoistureRecord).where(SoilMoistureRecord.source == "mock"))
+    db.execute(delete(WeatherRecord).where(WeatherRecord.source == "mock"))
+    demo_users = db.scalars(
+        select(User).where(User.email.like("%@landslide.demo"))
+    ).all()
+    for u in demo_users:
+        db.delete(u)
+    db.commit()
+    print(f"Purged demo data (removed {len(demo_users)} demo users).")
+
+
+def seed(db: Session):
+    ensure_roles(db)
+    state_objs, district_objs, villages = ensure_geo(db)
+    seed_terrain(db, district_objs, villages)
+    seed_power_environment(db, district_objs)
+    seed_landslides(db, district_objs)
+    seed_risk_zones(db, district_objs, villages)
+
+
+def ensure_bootstrap_admin() -> None:
+    """Create a real super admin from environment variables (if configured)."""
+    from app.db.session import SessionLocal as _SL
+
+    db = _SL()
+    try:
+        email = (settings.BOOTSTRAP_ADMIN_EMAIL or "").strip().lower()
+        password = settings.BOOTSTRAP_ADMIN_PASSWORD or ""
+        if not email or not password:
+            return
+        if db.scalar(select(User).where(User.email == email)):
+            return
+        role = db.scalar(select(Role).where(Role.name == "super_admin"))
+        if role is None:
+            role = Role(name="super_admin", description="Platform administrator with full access")
+            db.add(role)
+            db.commit()
+        db.add(User(
+            email=email,
+            full_name=settings.BOOTSTRAP_ADMIN_NAME or "Administrator",
+            hashed_password=hash_password(password),
+            role_id=role.id,
+            preferred_language="en",
+        ))
+        db.commit()
+        print(f"Created bootstrapped super admin ({email}).")
+    except Exception as exc:  # pragma: no cover
+        print(f"Bootstrap admin skipped: {exc}")
+    finally:
+        db.close()
 
 
 def run_seed():
     db = SessionLocal()
     try:
-        seed(db)
-        seed_example_data(db)
+        marker = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
+        if marker is None:
+            print("First run with real-data seed: purging demo dataset…")
+            remove_demo_data(db)
+            seed(db)
+            if not db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY)):
+                db.add(SystemConfig(
+                    key=MIGRATION_KEY,
+                    value=json.dumps({"generation": 1, "at": utcnow().isoformat()}),
+                    description="Real-data seed generation marker",
+                ))
+                db.commit()
+            print("Real-data seed complete.")
+        else:
+            ensure_roles(db)
+            ensure_geo(db)
     except Exception:
         import traceback
 
@@ -458,249 +506,6 @@ def run_seed():
         raise
     finally:
         db.close()
-
-
-def ensure_admin_login() -> None:
-    """Guarantee the demo super admin can log in, independently of the heavy
-    demo seed (which can abort part-way on a fresh Postgres and skip users)."""
-    from app.db.session import SessionLocal as _SL
-
-    db = _SL()
-    try:
-        role = db.scalar(select(Role).where(Role.name == "super_admin"))
-        if role is None:
-            role = Role(name="super_admin", description="Platform administrator with full access")
-            db.add(role)
-            db.commit()
-        user = db.scalar(select(User).where(User.email == "super_admin@landslide.demo"))
-        if user is None:
-            db.add(User(
-                email="super_admin@landslide.demo",
-                full_name="Super Admin",
-                hashed_password=hash_password("admin123"),
-                role_id=role.id,
-                preferred_language="en",
-            ))
-            db.commit()
-            print("Ensured demo super_admin login (super_admin@landslide.demo / admin123)")
-    except Exception as exc:  # pragma: no cover
-        print(f"Ensure admin login skipped: {exc}")
-    finally:
-        db.close()
-
-
-def ensure_demo_users() -> None:
-    """Guarantee every demo sandbox user can log in, independently of the heavy
-    demo seed (which can abort part-way on a fresh Postgres and skip users).
-
-    This is the safety net that keeps all five roles usable even when the full
-    seed fails after roles are committed but before users are created.
-    """
-    from app.db.session import SessionLocal as _SL
-
-    db = _SL()
-    try:
-        roles = {}
-        for name, desc in ROLES:
-            role = db.scalar(select(Role).where(Role.name == name))
-            if role is None:
-                role = Role(name=name, description=desc)
-                db.add(role)
-                db.flush()
-            roles[name] = role
-
-        districts = {d.name: d for d in db.scalars(select(District)).all()}
-        for email, (fname, pw, role, dist_name) in SANDBOX_USER_CREDENTIALS.items():
-            if db.scalar(select(User).where(User.email == email)):
-                continue
-            dist = districts.get(dist_name) if dist_name else None
-            db.add(User(
-                email=email,
-                full_name=fname,
-                hashed_password=hash_password(pw),
-                role_id=roles[role].id,
-                district_id=dist.id if dist else None,
-                preferred_language="en",
-            ))
-        db.commit()
-        print("Ensured demo sandbox users (all roles)")
-    except Exception as exc:  # pragma: no cover
-        print(f"Ensure demo users skipped: {exc}")
-    finally:
-        db.close()
-
-
-def seed_example_data(db: Session) -> None:
-    """Richer, idempotent demo data for incidents, field reports, alerts,
-    emergency responses and road/sensor statuses. Safe to run repeatedly.
-
-    Uses distinct marker rows so extra data is added only if missing, without
-    disturbing whatever the base seed (or a previously failed run) stored.
-    """
-    rng = random.Random(101)
-    now = utcnow()
-
-    def by_district(name: str):
-        return db.scalar(select(District).where(District.name == name))
-
-    def by_role(role_name: str):
-        return db.scalar(
-            select(User).join(Role, User.role_id == Role.id).where(Role.name == role_name).limit(1)
-        )
-
-    field = by_role("field_official")
-    citizen = by_role("citizen")
-
-    try:
-        # --- Extra incidents + emergency responses -------------------------
-        incidents_extra = [
-            ("rockfall", "medium", "reported", "pending", "Dima Hasao", "citizen",
-             "Rockfall along the hill section of NH-6 after overnight rain; loose boulders on shoulder."),
-            ("movement", "critical", "response", "verified", "Aizawl", "field",
-             "Rapid ground movement detected at Chalfilh village boundary; cracks visible across road."),
-            ("blocked_road", "high", "monitoring", "verified", "East Khasi Hills", "field",
-             "Shillong-Cherrapunjee road partially blocked by boulders and mud."),
-            ("sinkhole", "medium", "reported", "pending", "Ri Bhoi", "citizen",
-             "Sinkhole forming near new bridge construction site; surface depression growing."),
-            ("slope_crack", "high", "response", "verified", "Gomati", "citizen",
-             "Longitudinal cracks widening on a residential slope above the bazaar."),
-            ("flooding", "critical", "response", "verified", "Cachar", "field",
-             "Waterlogging undercutting hill roads in low-lying wards after sustained rain."),
-        ]
-        added_incidents = 0
-        for itype, sev, status, vstatus, dname, by, desc in incidents_extra:
-            if db.scalar(select(Incident).where(Incident.description == desc)):
-                continue
-            di = by_district(dname)
-            if di is None:
-                continue
-            reporter = field if by == "field" else citizen
-            inc = Incident(
-                incident_type=itype, severity=sev, status=status,
-                verification_status=vstatus, description=desc,
-                latitude=di.latitude + rng.uniform(-0.08, 0.08),
-                longitude=di.longitude + rng.uniform(-0.08, 0.08),
-                district_id=di.id, reported_by=reporter.id if reporter else None,
-                reported_at=now - timedelta(hours=rng.randint(1, 72)),
-                resolved_at=(now - timedelta(hours=rng.randint(2, 24))) if status == "monitoring" else None,
-            )
-            db.add(inc)
-            db.flush()
-            score = {"critical": rng.uniform(80, 96), "high": rng.uniform(65, 82),
-                     "medium": rng.uniform(45, 64), "low": rng.uniform(20, 44)}.get(sev, 50)
-            cls = "immediate" if score >= 85 else "high" if score >= 65 else "medium" if score >= 45 else "low"
-            db.add(EmergencyResponse(
-                incident_id=inc.id,
-                priority_score=round(score, 1),
-                priority_class=cls,
-                population_affected=int(rng.uniform(800, 18000)),
-                status=("ongoing" if status == "response" else "planned"),
-                responder_notes=f"Team routed to {dname}; Evacuation buffer approved for {cls} priority.",
-            ))
-            added_incidents += 1
-        db.commit()
-        if added_incidents:
-            print(f"Added {added_incidents} example incidents + emergency responses.")
-
-        # --- Extra field reports ------------------------------------------
-        reports_extra = [
-            ("rockfall", "medium", "Boulder deposition measured on NH-6 shoulder near Dima Hasao.", "Dima Hasao", "field"),
-            ("blocked_road", "high", "Debris piled 1.5 m deep across road; detour via village track.", "East Khasi Hills", "field"),
-            ("slope_crack", "high", "Crack aperture ~120 mm and extending 40 m along slope.", "Gomati", "field"),
-            ("flooding", "critical", "Sewage + runoff flooding hillside; structures at risk.", "Cachar", "citizen"),
-            ("movement", "critical", "Tiltmeter spikes recorded; staff instructed to blank surveillance.", "Aizawl", "field"),
-        ]
-        added_reports = 0
-        for rtype, sev, desc, dname, by in reports_extra:
-            if db.scalar(select(FieldReport).where(FieldReport.description == desc)):
-                continue
-            di = by_district(dname)
-            if di is None:
-                continue
-            reporter = field if by == "field" else citizen
-            db.add(FieldReport(
-                report_type=rtype, severity=sev, description=desc,
-                latitude=di.latitude + rng.uniform(-0.05, 0.05),
-                longitude=di.longitude + rng.uniform(-0.05, 0.05),
-                district_id=di.id,
-                reported_by=reporter.id if reporter else None,
-                reported_at=now - timedelta(hours=rng.randint(1, 48)),
-                sync_status="synced",
-            ))
-            added_reports += 1
-        db.commit()
-        if added_reports:
-            print(f"Added {added_reports} example field reports.")
-
-        # --- Extra alerts -----------------------------------------------------
-        alerts_extra = [
-            ("Extreme Rainfall Watch: Dima Hasao", "watch", "rainfall", "active", "HIGH",
-             "Dima Hasao", "Extreme 24-hour rainfall (210 mm) forecast overnight.",
-             "Move vulnerable families away from steep slopes; check early-warning siren.", ["NH-6"]),
-            ("Critical: Elevated Rockfall Risk after Tremor", "critical", "risk", "active", "CRITICAL",
-             "Aizawl", "Post-tremor slope shaking increases rockfall probability.",
-             "Restrict non-essential road use; dispatch inspection teams.", []),
-            ("Soil Moisture Anomaly: Ri Bhoi", "advisory", "soil", "acknowledged", "MODERATE",
-             "Ri Bhoi", "Soil moisture above seasonal norms in northern catchment.",
-             "Continue weekly monitoring cadence.", []),
-            ("Road Closure Advisory: NH-6 Section", "warning", "road", "active", "HIGH",
-             "Dima Hasao", "Rockfall debris reduces NH-6 to single lane near km 42.",
-             "Flag closure; deploy traffic control.", ["NH-6"]),
-            ("Satellite Deformation Signal Resolved: Cachar", "warning", "satellite", "resolved", "HIGH",
-             "Cachar", "Interferometric signal reduced to background after field inspection.",
-             "Archive observation; keep zone under watch.", []),
-        ]
-        added_alerts = 0
-        for title, sev, atype, status, rlevel, dname, msg, action, roads in alerts_extra:
-            if db.scalar(select(Alert).where(Alert.title == title)):
-                continue
-            di = by_district(dname)
-            if di is None:
-                continue
-            db.add(Alert(
-                title=title, message=msg, severity=sev, alert_type=atype, status=status,
-                risk_level=rlevel, cause="Auto-generated from demo enrichment seed",
-                recommended_action=action,
-                affected_villages=json.dumps([v.name for v in (di.villages or [])[:2]]),
-                affected_roads=json.dumps(roads),
-                district_id=di.id,
-                latitude=di.latitude + rng.uniform(-0.1, 0.1),
-                longitude=di.longitude + rng.uniform(-0.1, 0.1),
-                triggered_at=now - timedelta(hours=rng.randint(2, 48)),
-            ))
-            added_alerts += 1
-        db.commit()
-        if added_alerts:
-            print(f"Added {added_alerts} example alerts.")
-
-        # --- Road statuses (only if all roads are currently 'open') -------------
-        if not db.scalar(select(Road).where(Road.status.in_(["blocked", "restricted", "severely_blocked"]))):
-            roads = db.scalars(select(Road).limit(8)).all()
-            for i, rd in enumerate(roads):
-                rd.status = ["blocked", "restricted", "severely_blocked", "restricted"][i % 4]
-                rd.priority_score = round(rng.uniform(65, 95), 1)
-                rd.alternative_route = i % 3 != 0
-                rd.last_status_update = now - timedelta(hours=rng.randint(1, 30))
-            db.commit()
-            print(f"Marked {len(roads)} example roads as affected.")
-
-        # --- Sensor status variety (only if every sensor is 'online') -----------
-        if not db.scalar(select(Sensor).where(Sensor.status != "online")):
-            offline = db.scalars(select(Sensor).limit(5)).all()
-            for j, s in enumerate(offline):
-                s.status = "maintenance" if j < 2 else "offline"
-            db.commit()
-            print("Set example sensor statuses (maintenance/offline).")
-
-    except Exception as exc:  # pragma: no cover
-        import traceback
-
-        traceback.print_exc()
-        print(f"Example-data enrichment skipped: {exc}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

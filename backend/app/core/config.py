@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     SATELLITE_API_KEY: str = ""
     SATELLITE_BASE_URL: str = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
     TERRAIN_API_KEY: str = ""
-    TERRAIN_BASE_URL: str = ""
+    TERRAIN_BASE_URL: str = "https://api.open-meteo.com/v1/elevation"
+    NASA_POWER_BASE_URL: str = "https://power.larc.nasa.gov/api/temporal/daily/point"
 
     # Live weather providers: auto | openweather | weatherapi | openmeteo | imd | mock
     WEATHER_PROVIDER: str = "auto"
@@ -48,11 +49,19 @@ class Settings(BaseSettings):
 
     # Notifications
     SMS_API_KEY: str = ""
-    SMS_PROVIDER: str = "mock"
+    SMS_PROVIDER: str = "mock"  # mock|fast2sms|other
+    SMS_SENDER_ID: str = ""
+    SMS_ROUTE: str = "qtp"
+    FAST2SMS_API_KEY: str = ""
     EMAIL_API_KEY: str = ""
     EMAIL_FROM: str = "no-reply@example.com"
     PUSH_VAPID_PUBLIC_KEY: str = ""
     PUSH_VAPID_PRIVATE_KEY: str = ""
+
+    # Bootstrap super admin (created on first boot when the users table is empty)
+    BOOTSTRAP_ADMIN_EMAIL: str = ""
+    BOOTSTRAP_ADMIN_PASSWORD: str = ""
+    BOOTSTRAP_ADMIN_NAME: str = "Administrator"
 
     # Storage
     STORAGE_BUCKET: str = ""

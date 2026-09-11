@@ -4,34 +4,6 @@ import { useTranslation } from "react-i18next";
 import { api, getErrorMessage } from "../lib/api";
 import { useAuthStore } from "../store/authStore";
 
-const DEMO_CREDS = [
-  {
-    email: "super_admin@landslide.demo",
-    password: "admin123",
-    label: "Super Admin",
-  },
-  {
-    email: "district@landslide.demo",
-    password: "district123",
-    label: "District Admin",
-  },
-  {
-    email: "disaster@landslide.demo",
-    password: "disaster123",
-    label: "Disaster Mgmt",
-  },
-  {
-    email: "field@landslide.demo",
-    password: "field123",
-    label: "Field Officer",
-  },
-  {
-    email: "citizen@landslide.demo",
-    password: "citizen123",
-    label: "Citizen",
-  },
-];
-
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -49,26 +21,6 @@ export default function Login() {
       const res = await api.post("/auth/login", {
         email: email.trim(),
         password,
-      });
-      const data = res.data as { access_token: string; user: any };
-      setAuth(data.access_token, data.user);
-      navigate("/dashboard");
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const demoLogin = async (demoEmail: string, demoPassword: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-    setLoading(true);
-    setError("");
-    try {
-      const res = await api.post("/auth/login", {
-        email: demoEmail,
-        password: demoPassword,
       });
       const data = res.data as { access_token: string; user: any };
       setAuth(data.access_token, data.user);
@@ -125,23 +77,6 @@ export default function Login() {
               {loading ? t("common.loading") : t("auth.sign_in")}
             </button>
           </form>
-        </div>
-        <div className="mt-4 bg-white/10 rounded-xl p-4">
-          <div className="text-amber-300 text-sm font-semibold mb-2">
-            {t("auth.demo_creds")}
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            {DEMO_CREDS.map((c) => (
-              <button
-                key={c.email}
-                onClick={() => demoLogin(c.email, c.password)}
-                className="flex items-center justify-between bg-white/10 hover:bg-white/20 rounded-lg px-3 py-2 text-left text-sm text-white transition-colors"
-              >
-                <span>{c.label}</span>
-                <span className="text-slate-300 font-mono text-xs">{c.email}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>

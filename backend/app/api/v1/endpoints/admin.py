@@ -61,9 +61,15 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
 
     try:
         from app.services.notification_service import notification_service
-        notif_provider = "mock" if not settings.SMS_API_KEY else settings.SMS_PROVIDER
+        sms_provider = notification_service.providers.get("sms")
+        notif_provider = sms_provider.name if sms_provider else "none"
+        notif_configured = "fast2sms" in notif_provider
     except Exception as e:
         notif_provider = f"error: {e}"
+        notif_configured = False
+
+    weather_configured = get_weather_provider().name != "mock"
+    satellite_configured = get_satellite_source().name != "mock"
 
     return {
         "status": "ok",
@@ -79,9 +85,9 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
             "database": {"status": _db_ok(), "detail": settings.DATABASE_URL.split("://")[0] + "://****"},
             "ml_model": {"status": "ok" if model_manager.ready else "warning",
                          "detail": "model ready" if model_manager.ready else "train with: python -m app.ml.train"},
-            "weather": {"status": "mock" if get_weather_provider().name == "mock" else "configured"},
-            "satellite": {"status": "mock" if get_satellite_source().name == "mock" else "configured"},
-            "notifications": {"status": "mock" if notif_provider == "mock" else "configured"},
+            "weather": {"status": "configured" if weather_configured else "not_configured"},
+            "satellite": {"status": "configured" if satellite_configured else "mock"},
+            "notifications": {"status": "configured" if notif_configured else "not_configured"},
         },
     }
 
@@ -234,16 +240,15 @@ def admin_sensors(db: Session = Depends(get_db), user: User = Depends(require_mi
 
 
 @router.post("/reseed", status_code=200)
-def reseed_demo_data(db: Session = Depends(get_db), user: User = Depends(require_min_role("super_admin"))):
-    """Idempotently (re)populate the demo datasets. Adds any missing records."""
-    from database.seed.seed_db import seed, seed_example_data
+def reseed_real_data(db: Session = Depends(get_db), user: User = Depends(require_min_role("super_admin"))):
+    """Idempotently (re)load real reference / environmental data where tables are empty."""
+    from database.seed.seed_db import seed
 
     try:
         seed(db)
-        seed_example_data(db)
     except Exception as exc:  # pragma: no cover
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Demo reseed failed: {exc}") from exc
-    return {"status": "ok", "message": "Demo data reseeded (new records added only)"}
+        raise HTTPException(status_code=500, detail=f"Real-data seed failed: {exc}") from exc
+    return {"status": "ok", "message": "Real data refreshed (empty tables populated only)"}

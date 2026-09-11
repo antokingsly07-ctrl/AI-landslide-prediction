@@ -193,9 +193,6 @@ export default function Dashboard() {
           <strong>⚠ {t("safety.disclaimer")}</strong>
         </p>
       </div>
-      <div className="flex gap-2">
-        <span className={`badge ${riskTextClass("HAZARD")}`}>{t("common.demo_data")}</span>
-      </div>
     </div>
   );
 }

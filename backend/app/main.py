@@ -48,19 +48,21 @@ def create_app() -> FastAPI:
         from app.db.session import init_db
 
         init_db()
-        from database.seed.seed_db import run_seed
+        from database.seed.seed_db import run_seed, ensure_bootstrap_admin
         from database.seed.seed_ml import ensure_model
 
+        # Heavy real-data seed (NASA POWER / GLC / SRTM) runs in the background
+        # so the API stays responsive during first-boot population.
         try:
-            run_seed()
-        except Exception as e:  # pragma: no cover
-            print(f"Seed warning: {e}")
-        from database.seed.seed_db import ensure_demo_users
+            import asyncio
 
-        try:
-            ensure_demo_users()
+            asyncio.get_running_loop().run_in_executor(None, run_seed)
         except Exception as e:  # pragma: no cover
-            print(f"Demo users ensure warning: {e}")
+            print(f"Seed scheduling warning: {e}")
+        try:
+            ensure_bootstrap_admin()
+        except Exception as e:  # pragma: no cover
+            print(f"Bootstrap admin warning: {e}")
         try:
             ensure_model()
         except Exception as e:  # pragma: no cover
