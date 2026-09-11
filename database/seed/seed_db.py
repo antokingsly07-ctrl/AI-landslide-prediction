@@ -18,7 +18,7 @@ import json
 import urllib.request
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -430,13 +430,13 @@ def remove_demo_data(db: Session) -> None:
     db.execute(delete(RainfallRecord).where(RainfallRecord.is_demo == True))  # noqa: E712
     db.execute(delete(SoilMoistureRecord).where(SoilMoistureRecord.source == "mock"))
     db.execute(delete(WeatherRecord).where(WeatherRecord.source == "mock"))
-    demo_users = db.scalars(
-        select(User).where(User.email.like("%@landslide.demo"))
-    ).all()
-    for u in demo_users:
-        db.delete(u)
+    # Migration purge removes every pre-migration account: any account created
+    # before real-data migration belongs to the legacy demo era. A real super
+    # admin is created afterwards via BOOTSTRAP_ADMIN_* or first registration.
+    user_count = db.scalar(select(func.count(User.id))) or 0
+    db.execute(delete(User))
     db.commit()
-    print(f"Purged demo data (removed {len(demo_users)} demo users).")
+    print(f"Purged demo data (removed {user_count} pre-migration accounts).")
 
 
 def seed(db: Session):
@@ -480,25 +480,29 @@ def ensure_bootstrap_admin() -> None:
         db.close()
 
 
-def run_seed():
+def run_migration():
+    """Synchronous, fast one-time migration: purge demo data + reference geo,
+    then mark the real-data generation. Called at startup so demo accounts are
+    gone before the API serves requests."""
     db = SessionLocal()
     try:
         marker = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
-        if marker is None:
-            print("First run with real-data seed: purging demo dataset…")
-            remove_demo_data(db)
-            seed(db)
-            if not db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY)):
-                db.add(SystemConfig(
-                    key=MIGRATION_KEY,
-                    value=json.dumps({"generation": 1, "at": utcnow().isoformat()}),
-                    description="Real-data seed generation marker",
-                ))
-                db.commit()
-            print("Real-data seed complete.")
-        else:
+        if marker is not None:
             ensure_roles(db)
             ensure_geo(db)
+            return
+        print("Real-data migration: purging legacy demo dataset…")
+        remove_demo_data(db)
+        ensure_roles(db)
+        ensure_geo(db)
+        if not db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY)):
+            db.add(SystemConfig(
+                key=MIGRATION_KEY,
+                value=json.dumps({"generation": 1, "at": utcnow().isoformat()}),
+                description="Real-data seed generation marker",
+            ))
+            db.commit()
+        print("Real-data migration complete.")
     except Exception:
         import traceback
 
@@ -506,6 +510,35 @@ def run_seed():
         raise
     finally:
         db.close()
+
+
+def run_real_data_fill():
+    """Heavy real-data population (SRTM, NASA POWER, NASA GLC, risk zones).
+
+    Runs in a background thread after startup so the API stays responsive.
+    Every step is guarded by table-emptiness and skips gracefully on failure.
+    """
+    db = SessionLocal()
+    try:
+        ensure_roles(db)
+        state_objs, district_objs, villages = ensure_geo(db)
+        seed_terrain(db, district_objs, villages)
+        seed_power_environment(db, district_objs)
+        seed_landslides(db, district_objs)
+        seed_risk_zones(db, district_objs, villages)
+        print("Real-data fill complete.")
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+    finally:
+        db.close()
+
+
+def run_seed():
+    """Compatibility entry point: migration + full real-data fill."""
+    run_migration()
+    run_real_data_fill()
 
 
 if __name__ == "__main__":

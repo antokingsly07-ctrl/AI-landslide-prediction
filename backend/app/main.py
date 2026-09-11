@@ -48,17 +48,28 @@ def create_app() -> FastAPI:
         from app.db.session import init_db
 
         init_db()
-        from database.seed.seed_db import run_seed, ensure_bootstrap_admin
+        from database.seed.seed_db import (
+            ensure_bootstrap_admin,
+            run_migration,
+            run_real_data_fill,
+        )
         from database.seed.seed_ml import ensure_model
 
-        # Heavy real-data seed (NASA POWER / GLC / SRTM) runs in the background
-        # so the API stays responsive during first-boot population.
+        # One-time sync migration (fast): purge demo data + reference geo.
+        # Then the heavy real-data fill (SRTM / NASA POWER / NASA GLC) runs in
+        # a background thread so the API stays responsive on first boot.
         try:
-            import asyncio
-
-            asyncio.get_running_loop().run_in_executor(None, run_seed)
+            run_migration()
         except Exception as e:  # pragma: no cover
-            print(f"Seed scheduling warning: {e}")
+            print(f"Migration warning: {e}")
+        try:
+            import threading
+
+            threading.Thread(
+                target=run_real_data_fill, daemon=True, name="real-data-fill"
+            ).start()
+        except Exception as e:  # pragma: no cover
+            print(f"Real-data fill scheduling warning: {e}")
         try:
             ensure_bootstrap_admin()
         except Exception as e:  # pragma: no cover
