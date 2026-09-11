@@ -2,7 +2,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -71,6 +71,20 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
     weather_configured = get_weather_provider().name != "mock"
     satellite_configured = get_satellite_source().name != "mock"
 
+    try:
+        migration_row = db.scalar(
+            select(SystemConfig).where(SystemConfig.key == "real_data_generation")
+        )
+        migration_info = json.loads(migration_row.value) if migration_row else None
+        migration_error = (migration_info or {}).get("error")
+        migration_status = "ok" if not migration_error else "error"
+    except Exception:
+        migration_info = None
+        migration_error = None
+        migration_status = "unknown"
+
+    user_count = db.scalar(select(func.count(User.id))) or 0
+
     return {
         "status": "ok",
         "api": "ok",
@@ -80,6 +94,8 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
         "satellite_provider": get_satellite_source().name,
         "notification_provider": notif_provider,
         "environment": settings.ENVIRONMENT,
+        "migration": {"status": migration_status, "info": migration_info},
+        "data": {"users": user_count},
         "components": {
             "api": {"status": "ok", "detail": "healthy"},
             "database": {"status": _db_ok(), "detail": settings.DATABASE_URL.split("://")[0] + "://****"},
@@ -88,6 +104,8 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
             "weather": {"status": "configured" if weather_configured else "not_configured"},
             "satellite": {"status": "configured" if satellite_configured else "mock"},
             "notifications": {"status": "configured" if notif_configured else "not_configured"},
+            "migration": {"status": migration_status,
+                          "detail": migration_error or "real-data migration complete"},
         },
     }
 

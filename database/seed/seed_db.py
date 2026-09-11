@@ -411,30 +411,43 @@ def seed_risk_zones(db: Session, district_objs: dict, villages: list[Village]) -
     return count
 
 
+def _safe_delete(db: Session, statement, label: str) -> None:
+    """Execute a DELETE best-effort so a single bad table never aborts the
+    whole migration (missing/mismatched schema can otherwise block the purge)."""
+    try:
+        db.execute(statement)
+    except Exception as exc:  # pragma: no cover - depends on deployed schema
+        db.rollback()
+        print(f"Purge skipped [{label}]: {exc}")
+
+
 def remove_demo_data(db: Session) -> None:
     """Purge the legacy demo dataset so only real data remains."""
-    db.execute(delete(NotificationLog))
-    db.execute(delete(EmergencyResponse))
-    db.execute(delete(FieldReport))
-    db.execute(delete(Alert))
-    db.execute(delete(Incident))
-    db.execute(delete(RiskPrediction))
-    db.execute(delete(RiskZone))
-    db.execute(delete(Infrastructure))
-    db.execute(delete(Road))
-    db.execute(delete(SensorReading))
-    db.execute(delete(Sensor))
-    db.execute(delete(LandslideHistory))
-    db.execute(delete(TerrainData))
-    db.execute(delete(Village).where(Village.name.notin_([r[0] for r in REAL_VILLAGES])))
-    db.execute(delete(RainfallRecord).where(RainfallRecord.is_demo == True))  # noqa: E712
-    db.execute(delete(SoilMoistureRecord).where(SoilMoistureRecord.source == "mock"))
-    db.execute(delete(WeatherRecord).where(WeatherRecord.source == "mock"))
+    for stmt, label in (
+        (delete(NotificationLog), "notification_logs"),
+        (delete(EmergencyResponse), "emergency_responses"),
+        (delete(FieldReport), "field_reports"),
+        (delete(Alert), "alerts"),
+        (delete(Incident), "incidents"),
+        (delete(RiskPrediction), "risk_predictions"),
+        (delete(RiskZone), "risk_zones"),
+        (delete(Infrastructure), "infrastructure"),
+        (delete(Road), "roads"),
+        (delete(SensorReading), "sensor_readings"),
+        (delete(Sensor), "sensors"),
+        (delete(LandslideHistory), "landslide_history"),
+        (delete(TerrainData), "terrain_data"),
+        (delete(Village).where(Village.name.notin_([r[0] for r in REAL_VILLAGES])), "villages"),
+        (delete(RainfallRecord).where(RainfallRecord.is_demo == True), "rainfall"),  # noqa: E712
+        (delete(SoilMoistureRecord).where(SoilMoistureRecord.source == "mock"), "soil_moisture"),
+        (delete(WeatherRecord).where(WeatherRecord.source == "mock"), "weather"),
+    ):
+        _safe_delete(db, stmt, label)
     # Migration purge removes every pre-migration account: any account created
     # before real-data migration belongs to the legacy demo era. A real super
     # admin is created afterwards via BOOTSTRAP_ADMIN_* or first registration.
     user_count = db.scalar(select(func.count(User.id))) or 0
-    db.execute(delete(User))
+    _safe_delete(db, delete(User), "users")
     db.commit()
     print(f"Purged demo data (removed {user_count} pre-migration accounts).")
 
@@ -495,18 +508,34 @@ def run_migration():
         remove_demo_data(db)
         ensure_roles(db)
         ensure_geo(db)
-        if not db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY)):
+        current = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
+        if current is None:
             db.add(SystemConfig(
                 key=MIGRATION_KEY,
-                value=json.dumps({"generation": 1, "at": utcnow().isoformat()}),
+                value=json.dumps({"generation": 1, "at": utcnow().isoformat(), "error": None}),
                 description="Real-data seed generation marker",
             ))
             db.commit()
         print("Real-data migration complete.")
-    except Exception:
+    except Exception as exc:  # pragma: no cover - report diagnostic through health
         import traceback
 
         traceback.print_exc()
+        try:
+            current = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
+            if current is None:
+                db.add(SystemConfig(
+                    key=MIGRATION_KEY,
+                    value=json.dumps({
+                        "generation": 1,
+                        "at": utcnow().isoformat(),
+                        "error": repr(exc),
+                    }),
+                    description="Real-data seed generation marker (migration error)",
+                ))
+                db.commit()
+        except Exception:  # pragma: no cover
+            pass
         raise
     finally:
         db.close()
