@@ -65,6 +65,16 @@ export function roadStatusColor(status: string): string {
   return map[status] || "bg-slate-100 text-slate-700";
 }
 
+export function roadPredictionLevelColor(level: string): string {
+  const map: Record<string, string> = {
+    low: "bg-green-100 text-green-700",
+    moderate: "bg-yellow-100 text-yellow-700",
+    high: "bg-red-100 text-red-700",
+    critical: "bg-purple-100 text-purple-700",
+  };
+  return map[level] || "bg-slate-100 text-slate-700";
+}
+
 export function priorityColor(cls: string): string {
   const map: Record<string, string> = {
     immediate: "bg-red-600 text-white",

@@ -110,6 +110,12 @@ export interface Road {
   priority_score: number;
   latitude?: number;
   longitude?: number;
+  district_id?: string;
+  district_name?: string;
+  last_status_update?: string;
+  prediction_score?: number;
+  prediction_level?: string;
+  last_prediction_at?: string;
 }
 
 export interface Sensor {

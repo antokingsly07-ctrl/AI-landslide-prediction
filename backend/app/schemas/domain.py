@@ -146,9 +146,23 @@ class RoadOut(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     district_id: Optional[str] = None
+    district_name: Optional[str] = None
     last_status_update: Optional[datetime] = None
+    prediction_score: float = 0.0
+    prediction_level: str = "low"
+    last_prediction_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class RoadCreate(BaseModel):
+    name: str
+    road_type: str = "state"
+    district_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    population_served: int = 0
+    alternative_route: bool = True
 
 
 class RoadStatusUpdate(BaseModel):

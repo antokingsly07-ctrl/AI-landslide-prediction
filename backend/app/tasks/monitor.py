@@ -32,6 +32,15 @@ class RiskMonitor:
             total += process_news_incidents(db) or 0
         except Exception as e:
             print(f"Monitor news-incident error: {e}")
+        try:
+            from app.services.road_service import (
+                raise_road_prediction_alerts,
+                recompute_road_prediction,
+            )
+            recompute_road_prediction(db)
+            total += raise_road_prediction_alerts(db)
+        except Exception as e:
+            print(f"Monitor road-prediction error: {e}")
         self.last_sync = time.time()
         return total
 

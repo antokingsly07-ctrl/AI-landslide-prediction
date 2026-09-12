@@ -552,6 +552,64 @@ def seed_sensors(db: Session, district_objs: dict) -> int:
     return count
 
 
+# Documented Meghalaya routes that carry landslide risk. Statuses shown as
+# seeded *baselines*; the news pipeline and field officials update them live.
+# NH-6 (Shillong-Silchar-Aizawl corridor): NRSC-ISRO/NDMA experimental LEWS.
+# NH-40 / NH-106 / NH-206: principal Khasi Hills highways. East Jaintia Hills
+# (Donar Skur, Byndihati-Ratachhera, Kuliang) and South Garo Hills are the
+# historically worst-hit segments. Coordinates target the named section.
+ML_REAL_ROADS = [
+    ("NH-6 Shillong-Silchar Highway (Barapani-Byndihati)", "highway", "East Khasi Hills", 25.5980, 91.9020, 42000, True, 0.95),
+    ("NH-6 Shillong-Silchar Highway (Byndihati-Ratachhera)", "highway", "East Jaintia Hills", 25.4100, 92.2500, 36000, True, 1.0),
+    ("NH-6 Shillong-Silchar Highway (Donar Skur-Kuliang)", "highway", "East Jaintia Hills", 25.3987, 92.2769, 28000, False, 1.0),
+    ("NH-40 Umiam-Shillong section", "highway", "East Khasi Hills", 25.6251, 91.8998, 31000, True, 0.8),
+    ("NH-40 Umiam-Nongpoh section", "highway", "Ri Bhoi", 25.9000, 91.8800, 18000, True, 0.6),
+    ("NH-106 Shillong-Sohra (Cherrapunji)", "highway", "East Khasi Hills", 25.2664, 91.7200, 15000, False, 0.75),
+    ("NH-206 Shillong-Dawki (Jaintia sector)", "highway", "East Jaintia Hills", 25.2400, 92.0500, 9000, False, 0.6),
+    ("SH-4 Shillong-Jowai-Nongtalang", "state", "East Jaintia Hills", 25.4390, 92.1950, 24000, True, 0.7),
+    ("SH-9 Shillong-Nongstoin-Khanduli", "state", "West Khasi Hills", 25.5167, 91.2667, 26000, True, 0.65),
+    ("SH-5 Nongstoin-Mawkyrwat-Baghmara", "state", "South West Khasi Hills", 25.2000, 91.4167, 13000, False, 0.6),
+    ("SH-6 Tura-Baghmara corridor", "state", "South Garo Hills", 25.1950, 90.6340, 21000, True, 0.8),
+    ("SH-7 Tura-Williamnagar corridor", "state", "East Garo Hills", 25.5000, 90.7500, 16000, True, 0.55),
+    ("SH-11 Resubelpara-Williamnagar", "state", "North Garo Hills", 25.9000, 90.6000, 9000, False, 0.5),
+    ("Tura-Ampati corridor", "state", "South West Garo Hills", 25.4680, 89.9480, 11000, False, 0.5),
+    ("Sohra-Mawsynram link", "village", "East Khasi Hills", 25.2910, 91.6200, 8000, False, 0.45),
+    ("Jowai-Khanduli corridor", "district", "East Jaintia Hills", 25.4400, 92.1800, 12000, True, 0.5),
+    ("Nongstoin-Mairang corridor", "district", "West Khasi Hills", 25.5600, 91.7300, 10000, True, 0.45),
+]
+
+
+def seed_roads(db: Session, district_objs: dict) -> int:
+    """Register the real Meghalaya road network with baseline statuses."""
+    if db.scalar(select(Road).limit(1)):
+        return 0
+    now = utcnow()
+    count = 0
+    history_count = 0
+    for name, rtype, dname, lat, lon, pop, alt, prio in ML_REAL_ROADS:
+        di = district_objs.get(("ML", dname))
+        if di is None:
+            continue
+        road = Road(
+            name=name, road_type=rtype, district_id=di.id,
+            latitude=lat, longitude=lon, status="open",
+            population_served=pop, alternative_route=alt,
+            priority_score=prio, last_status_update=now,
+            prediction_score=0.0, prediction_level="low",
+        )
+        db.add(road)
+        db.flush()
+        db.add(RoadStatusHistory(
+            road_id=road.id, status="open",
+            changed_by=None, reason="Seed baseline (real Meghalaya road network)",
+        ))
+        count += 1
+        history_count += 1
+    db.commit()
+    print(f"Registered {count} real Meghalaya roads ({history_count} history rows).")
+    return count
+
+
 def _safe_delete(db: Session, statement, label: str) -> None:
     """Execute a DELETE best-effort so a single bad table never aborts the
     whole migration (missing/mismatched schema can otherwise block the purge)."""
@@ -615,6 +673,7 @@ def seed(db: Session):
     seed_landslides(db, district_objs)
     seed_risk_zones(db, district_objs, villages)
     seed_sensors(db, district_objs)
+    seed_roads(db, district_objs)
 
 
 def ensure_bootstrap_admin() -> None:
@@ -743,6 +802,7 @@ def run_real_data_fill():
         seed_landslides(db, district_objs)
         seed_risk_zones(db, district_objs, villages)
         seed_sensors(db, district_objs)
+        seed_roads(db, district_objs)
         print("Real-data fill complete.")
     except Exception:
         import traceback

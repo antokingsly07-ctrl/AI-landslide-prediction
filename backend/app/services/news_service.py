@@ -319,6 +319,14 @@ def process_news_incidents(db: Session) -> int:
         audit(db, "incident.create", "incident", inc.id,
               f"Auto-created {itype} incident from news ({item.get('domain', 'news')})", None)
         raise_news_alert(db, inc, loc, title=item.get("title"), domain=item.get("domain"))
+        try:
+            from app.services.road_service import apply_road_status_from_news
+            road_update = apply_road_status_from_news(
+                db, title=item.get("title") or "", description=item.get("description") or "")
+            if road_update:
+                print(f"News road status: {road_update['road']} -> {road_update['status']}")
+        except Exception as exc:  # pragma: no cover - keep incident pipeline robust
+            print(f"News road-status error: {exc}")
         db.commit()
         _mark_seen(db, item["url"])
         created += 1

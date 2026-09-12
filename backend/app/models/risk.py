@@ -121,6 +121,9 @@ class Road(BaseGeo):
     alternative_route: Mapped[bool] = mapped_column(Boolean, default=True)
     priority_score: Mapped[float] = mapped_column(Float, default=0.0)
     last_status_update: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    prediction_score: Mapped[float] = mapped_column(Float, default=0.0)
+    prediction_level: Mapped[str] = mapped_column(String(20), default="low")  # low|moderate|high|critical
+    last_prediction_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     district: Mapped["District"] = relationship()
 
@@ -142,7 +145,7 @@ class Alert(BaseGeo):
     title: Mapped[str] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20), index=True)  # advisory|watch|warning|critical
-    alert_type: Mapped[str] = mapped_column(String(50), default="risk")  # risk|rainfall|soil|anomaly|report|road|satellite
+    alert_type: Mapped[str] = mapped_column(String(50), default="risk")  # risk|rainfall|soil|anomaly|report|road|road_prediction|satellite
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active|acknowledged|resolved
     risk_level: Mapped[str] = mapped_column(String(20), nullable=True)
     cause: Mapped[str] = mapped_column(Text, nullable=True)

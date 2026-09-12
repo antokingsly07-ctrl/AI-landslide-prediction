@@ -1,4 +1,4 @@
-"""Road endpoints: list, update status, connectivity."""
+"""Road endpoints: list, add, update status, connectivity, prediction."""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +9,7 @@ from app.core.deps import get_current_user, require_min_role
 from app.db.session import get_db
 from app.models.geo import User, Village
 from app.models.risk import Road, RoadStatusHistory
-from app.schemas.domain import RoadOut, RoadStatusUpdate
+from app.schemas.domain import RoadCreate, RoadOut, RoadStatusUpdate
 from app.services.audit_service import audit
 from app.services.i18n import ROAD_STATUS_LABELS, translate
 from app.services.prediction_service import create_alert
@@ -17,6 +17,19 @@ from app.services.prediction_service import create_alert
 router = APIRouter()
 
 VALID_STATUSES = ["open", "restricted", "blocked", "severely_blocked", "unknown"]
+
+
+def _to_out(road: Road) -> RoadOut:
+    return RoadOut(
+        id=road.id, name=road.name, road_type=road.road_type, status=road.status,
+        population_served=road.population_served, alternative_route=road.alternative_route,
+        priority_score=road.priority_score, latitude=road.latitude, longitude=road.longitude,
+        district_id=road.district_id,
+        district_name=road.district.name if road.district else None,
+        last_status_update=road.last_status_update,
+        prediction_score=road.prediction_score, prediction_level=road.prediction_level,
+        last_prediction_at=road.last_prediction_at,
+    )
 
 
 @router.get("", response_model=list[RoadOut])
@@ -32,15 +45,36 @@ def list_roads(
     if district_id:
         q = q.where(Road.district_id == district_id)
     rows = db.scalars(q).all()
-    return [
-        RoadOut(
-            id=r.id, name=r.name, road_type=r.road_type, status=r.status,
-            population_served=r.population_served, alternative_route=r.alternative_route,
-            priority_score=r.priority_score, latitude=r.latitude, longitude=r.longitude,
-            district_id=r.district_id, last_status_update=r.last_status_update,
-        )
-        for r in rows
-    ]
+    return [_to_out(r) for r in rows]
+
+
+@router.post("", response_model=RoadOut, status_code=201)
+def create_road(payload: RoadCreate,
+                user: User = Depends(require_min_role("district_admin")),
+                db: Session = Depends(get_db)):
+    road = Road(
+        name=payload.name, road_type=payload.road_type, district_id=payload.district_id,
+        latitude=payload.latitude, longitude=payload.longitude,
+        population_served=payload.population_served,
+        alternative_route=payload.alternative_route,
+        status="unknown", last_status_update=datetime.now(timezone.utc),
+    )
+    db.add(road)
+    db.flush()
+    audit(db, "road.create", "road", road.id, f"Created road: {road.name}", user.id)
+    db.commit()
+    db.refresh(road)
+    return _to_out(road)
+
+
+@router.get("/predicted-blocked")
+def predicted_blocked(limit: int = Query(default=10),
+                      db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Roads most likely to be blocked by a landslide (0-100 risk, live factors)."""
+    from app.services.road_service import recompute_road_prediction
+
+    return recompute_road_prediction(db)[:limit]
 
 
 @router.get("/connectivity")
@@ -107,9 +141,4 @@ def update_road_status(id: str, payload: RoadStatusUpdate,
 
     db.commit()
     db.refresh(road)
-    return RoadOut(
-        id=road.id, name=road.name, road_type=road.road_type, status=road.status,
-        population_served=road.population_served, alternative_route=road.alternative_route,
-        priority_score=road.priority_score, latitude=road.latitude, longitude=road.longitude,
-        district_id=road.district_id, last_status_update=road.last_status_update,
-    )
+    return _to_out(road)

@@ -71,3 +71,12 @@ def init_db() -> None:
             conn.execute(
                 text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS source_url VARCHAR(2000)")
             )
+            conn.execute(
+                text("ALTER TABLE roads ADD COLUMN IF NOT EXISTS prediction_score FLOAT DEFAULT 0.0")
+            )
+            conn.execute(
+                text("ALTER TABLE roads ADD COLUMN IF NOT EXISTS prediction_level VARCHAR(20) DEFAULT 'low'")
+            )
+            conn.execute(
+                text("ALTER TABLE roads ADD COLUMN IF NOT EXISTS last_prediction_at TIMESTAMPTZ")
+            )
