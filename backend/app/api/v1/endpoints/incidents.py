@@ -13,6 +13,7 @@ from app.schemas.domain import IncidentCreate, IncidentOut, IncidentUpdate
 from app.services.audit_service import audit
 from app.services.i18n import translate
 from app.services.prediction_service import create_alert
+from app.services.priority_service import compute_priority
 
 router = APIRouter()
 
@@ -37,30 +38,8 @@ def incident_to_out(inc: Incident, db: Session) -> IncidentOut:
         reported_at=inc.reported_at, resolved_at=inc.resolved_at,
         priority_score=er.priority_score if er else None,
         priority_class=er.priority_class if er else None,
+        source=inc.source, source_url=inc.source_url,
     )
-
-
-def compute_priority(inc: Incident, db: Session) -> dict:
-    """Score 0-100 for emergency response prioritisation."""
-    er = db.scalar(select(EmergencyResponse).where(EmergencyResponse.incident_id == inc.id))
-    reports_count = db.scalar(
-        select(__import__("sqlalchemy").func.count(FieldReport.id)).where(FieldReport.incident_id == inc.id)
-    ) or 0
-
-    sev_score = {"low": 10, "medium": 30, "high": 55, "critical": 80}.get(inc.severity, 30)
-    status_score = {"reported": 35, "verified": 45, "monitoring": 55, "response": 70, "resolved": 5}.get(inc.status, 30)
-    pop_score = min(20, (er.population_affected if er else 0) / 10000 * 20)
-    report_score = min(15, reports_count * 3)
-    score = min(100, sev_score * 0.5 + status_score * 0.2 + pop_score + report_score)
-
-    level = "low"
-    if score >= 80:
-        level = "immediate"
-    elif score >= 60:
-        level = "high"
-    elif score >= 40:
-        level = "medium"
-    return {"priority_score": round(score, 1), "priority_class": level}
 
 
 @router.get("", response_model=list[IncidentOut])

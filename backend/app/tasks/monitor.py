@@ -17,16 +17,23 @@ class RiskMonitor:
 
     async def run_cycle(self, db):
         from app.services.prediction_service import evaluate_auto_alerts, check_rainfall_alert
+        from app.services.news_service import process_news_incidents
 
+        total = 0
         try:
-            created = evaluate_auto_alerts(db)
-            check_rainfall_alert(db)
-            # Also re-evaluate open sensor/road alerts from recent data once an hour
-            self.last_sync = time.time()
-            return len(created)
+            total += len(evaluate_auto_alerts(db))
         except Exception as e:
-            print(f"Monitor cycle error: {e}")
-            return 0
+            print(f"Monitor risk-alert error: {e}")
+        try:
+            check_rainfall_alert(db)
+        except Exception as e:
+            print(f"Monitor rainfall-alert error: {e}")
+        try:
+            total += process_news_incidents(db) or 0
+        except Exception as e:
+            print(f"Monitor news-incident error: {e}")
+        self.last_sync = time.time()
+        return total
 
     async def loop(self):
         from app.db.session import SessionLocal

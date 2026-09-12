@@ -129,6 +129,8 @@ class IncidentOut(BaseModel):
     resolved_at: Optional[datetime] = None
     priority_score: Optional[float] = None
     priority_class: Optional[str] = None
+    source: Optional[str] = None
+    source_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -65,3 +65,9 @@ def init_db() -> None:
             conn.execute(
                 text("ALTER TABLE users ALTER COLUMN email TYPE VARCHAR(255)")
             )
+            conn.execute(
+                text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS source VARCHAR(500)")
+            )
+            conn.execute(
+                text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS source_url VARCHAR(2000)")
+            )

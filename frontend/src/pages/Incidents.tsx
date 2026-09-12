@@ -40,6 +40,20 @@ export default function Incidents() {
                   </span>
                 </div>
               )}
+              {i.source && (
+                <div className="mt-2 text-xs text-slate-500">
+                  {i.source === "auto_news" && (
+                    <span className="badge bg-blue-50 text-blue-700 mr-1">News</span>
+                  )}
+                  {i.source_url ? (
+                    <a href={i.source_url} target="_blank" rel="noreferrer" className="underline hover:text-blue-600">
+                      Source article
+                    </a>
+                  ) : (
+                    <span>{i.source}</span>
+                  )}
+                </div>
+              )}
             </div>
             <span className={`text-xs uppercase shrink-0 ${i.severity === "critical" ? "text-red-600" : "text-slate-500"}`}>
               {i.severity}

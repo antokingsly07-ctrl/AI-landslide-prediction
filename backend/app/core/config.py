@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     POLL_INTERVAL_SECONDS: int = 300
     ALERT_COOLDOWN_MINUTES: int = 60
 
+    # News automation (auto-incident ingestion from news channels)
+    NEWS_ENABLED: bool = True
+    NEWS_PROVIDER: str = "auto"  # auto|google_rss|gdelt|mock
+    NEWS_QUERY: str = "landslide OR landslip OR mudslide northeast india"
+    NEWS_TIMESPAN_HOURS: int = 24
+    NEWS_MAX_RECORDS: int = 50
+
     # Risk threshold defaults (configurable from admin)
     RISK_LEVELS: ClassVar[dict] = {
         "VERY_LOW": (0, 20),

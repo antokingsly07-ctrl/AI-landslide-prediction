@@ -77,6 +77,8 @@ export interface Incident {
   reported_at: string;
   priority_score?: number;
   priority_class?: string;
+  source?: string;
+  source_url?: string;
 }
 
 export interface Alert {

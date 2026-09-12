@@ -60,6 +60,8 @@ class Incident(BaseGeo):
     verification_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|verified|rejected
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(Text, nullable=True)  # auto_news|mobile_report|sync|manual
+    source_url: Mapped[str] = mapped_column(Text, nullable=True)  # original news article link
 
     reporter: Mapped["User"] = relationship(foreign_keys=[reported_by], lazy="selectin")
     assignee: Mapped["User"] = relationship(foreign_keys=[assigned_to], lazy="selectin")
