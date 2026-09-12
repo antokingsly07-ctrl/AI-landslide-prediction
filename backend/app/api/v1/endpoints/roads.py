@@ -67,7 +67,16 @@ def create_road(payload: RoadCreate,
     return _to_out(road)
 
 
-@router.get("/predicted-blocked")
+@router.delete("/{id}", status_code=204)
+def delete_road(id: str,
+                user: User = Depends(require_min_role("district_admin")),
+                db: Session = Depends(get_db)):
+    road = db.get(Road, id)
+    if not road:
+        raise HTTPException(status_code=404, detail="Road not found")
+    audit(db, "road.delete", "road", road.id, f"Deleted road: {road.name}", user.id)
+    db.delete(road)
+    db.commit()
 def predicted_blocked(limit: int = Query(default=10),
                       db: Session = Depends(get_db),
                       user: User = Depends(get_current_user)):
