@@ -139,11 +139,14 @@ def news_scan(db: Session = Depends(get_db),
 def recompute_priorities(db: Session = Depends(get_db),
                          user: User = Depends(require_min_role("disaster_mgmt"))):
     """Recompute priority scores/classes stored in emergency_responses."""
+    from app.services.news_service import _strip_html
     from app.services.priority_service import compute_priority
 
     rows = db.scalars(select(Incident).where(Incident.status != "resolved")).all()
     updated = 0
     for inc in rows:
+        if inc.source == "auto_news":
+            inc.description = _strip_html(inc.description)
         prio = compute_priority(inc, db)
         er = db.scalar(select(EmergencyResponse).where(EmergencyResponse.incident_id == inc.id))
         if er:
