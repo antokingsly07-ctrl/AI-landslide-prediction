@@ -146,7 +146,13 @@ def recompute_priorities(db: Session = Depends(get_db),
     updated = 0
     for inc in rows:
         if inc.source == "auto_news":
-            inc.description = _strip_html(inc.description)
+            d = _strip_html(inc.description)
+            if " — " in d:
+                head, rest = d.split(" — ", 1)
+                if rest.lower().startswith(head.lower()):
+                    rest = rest[len(head):].strip(" ,.–—")
+                    d = f"{head} — {rest}".strip(" —")
+            inc.description = d
         prio = compute_priority(inc, db)
         er = db.scalar(select(EmergencyResponse).where(EmergencyResponse.incident_id == inc.id))
         if er:
