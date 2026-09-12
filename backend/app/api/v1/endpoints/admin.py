@@ -10,7 +10,7 @@ from app.core.deps import get_current_user, require_min_role
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.geo import District, Role, State, User
-from app.models.risk import AuditLog, NotificationLog, SystemConfig
+from app.models.risk import AuditLog, EmergencyResponse, FieldReport, Incident, NotificationLog, SystemConfig, UploadedMedia
 from app.models.environment import Sensor as SensorModel, SensorReading
 from app.ml.model_manager import model_manager
 from app.schemas.auth import UserUpdate
@@ -139,7 +139,6 @@ def news_scan(db: Session = Depends(get_db),
 def recompute_priorities(db: Session = Depends(get_db),
                          user: User = Depends(require_min_role("disaster_mgmt"))):
     """Recompute priority scores/classes stored in emergency_responses."""
-    from app.models.risk import EmergencyResponse
     from app.services.priority_service import compute_priority
 
     rows = db.scalars(select(Incident).where(Incident.status != "resolved")).all()
@@ -153,6 +152,33 @@ def recompute_priorities(db: Session = Depends(get_db),
             updated += 1
     db.commit()
     return {"updated": updated}
+
+
+@router.post("/incidents/dedupe")
+def dedupe_incidents(db: Session = Depends(get_db),
+                     user: User = Depends(require_min_role("disaster_mgmt"))):
+    """Drop older auto_news incidents that repeat the same titled event."""
+    from sqlalchemy import delete
+
+    from app.services.news_service import _norm
+
+    rows = db.scalars(
+        select(Incident).where(Incident.source == "auto_news")
+        .order_by(Incident.reported_at.asc())
+    ).all()
+    seen: dict[str, Incident] = {}
+    removed: list[str] = []
+    for inc in rows:
+        key = _norm(inc.description or inc.incident_type)
+        if key in seen:
+            for model in (UploadedMedia, FieldReport, EmergencyResponse):
+                db.execute(delete(model).where(model.incident_id == inc.id))
+            removed.append(inc.id)
+            db.delete(inc)
+        else:
+            seen[key] = inc
+    db.commit()
+    return {"removed": removed}
 
 
 @router.get("/districts")

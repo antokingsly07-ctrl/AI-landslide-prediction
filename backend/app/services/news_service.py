@@ -277,12 +277,20 @@ def process_news_incidents(db: Session) -> int:
             continue
         loc = _resolve_location(db, text)
         itype, severity = _classify(text)
+        desc = f"{_strip_html(item.get('title'))} — {_strip_html(item.get('description'))}".strip(" —")
+        dup = next((d for d in db.scalars(select(Incident).where(
+            Incident.source == "auto_news",
+            Incident.reported_at >= _now() - timedelta(days=30))).all()
+            if _norm(d.description) == _norm(desc)), None)
+        if dup:
+            _mark_seen(db, item["url"])
+            continue
         inc = Incident(
             incident_type=itype,
             status="reported",
             severity=severity,
             verification_status="pending",
-            description=f"{_strip_html(item.get('title'))} — {_strip_html(item.get('description'))}".strip(" —"),
+            description=desc,
             latitude=loc["latitude"] if loc else None,
             longitude=loc["longitude"] if loc else None,
             district_id=loc["district_id"] if loc else None,
