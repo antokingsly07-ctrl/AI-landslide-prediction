@@ -160,7 +160,7 @@ def dedupe_incidents(db: Session = Depends(get_db),
     """Drop older auto_news incidents that repeat the same titled event."""
     from sqlalchemy import delete
 
-    from app.services.news_service import _norm
+    from app.services.news_service import _norm_headline
 
     rows = db.scalars(
         select(Incident).where(Incident.source == "auto_news")
@@ -169,7 +169,7 @@ def dedupe_incidents(db: Session = Depends(get_db),
     seen: dict[str, Incident] = {}
     removed: list[str] = []
     for inc in rows:
-        key = _norm(inc.description or inc.incident_type)
+        key = _norm_headline(inc.description or inc.incident_type)
         if key in seen:
             for model in (UploadedMedia, FieldReport, EmergencyResponse):
                 db.execute(delete(model).where(model.incident_id == inc.id))

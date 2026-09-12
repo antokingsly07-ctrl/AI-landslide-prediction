@@ -39,6 +39,11 @@ def _norm(text: str | None) -> str:
     return re.sub(r"\s+", " ", (text or "").lower().strip())
 
 
+def _norm_headline(desc: str) -> str:
+    headline = _strip_html(desc).split(" — ")[0].split(" – ")[0]
+    return _norm(headline)
+
+
 RELEVANT_KEYWORDS = ("landslide", "landslip", " land slide", "mudslide",
                      "slope failure", "hill slope", "rockfall", "rock fall",
                      "soil erosion", "land caving")
@@ -281,7 +286,7 @@ def process_news_incidents(db: Session) -> int:
         dup = next((d for d in db.scalars(select(Incident).where(
             Incident.source == "auto_news",
             Incident.reported_at >= _now() - timedelta(days=30))).all()
-            if _norm(d.description) == _norm(desc)), None)
+            if _norm_headline(d.description) == _norm_headline(desc)), None)
         if dup:
             _mark_seen(db, item["url"])
             continue
