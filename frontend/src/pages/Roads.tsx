@@ -146,7 +146,7 @@ export default function Roads() {
                 {r.prediction_score !== undefined && r.prediction_score > 0 && (
                   <span className="ml-2">
                     · Predicted blockage{" "}
-                    <span className={`badge ${roadPredictionLevelColor(r.prediction_level)} capitalize`}>
+                    <span className={`badge ${roadPredictionLevelColor(r.prediction_level || "low")} capitalize`}>
                       {r.prediction_level} {r.prediction_score.toFixed(0)}%
                     </span>
                   </span>
