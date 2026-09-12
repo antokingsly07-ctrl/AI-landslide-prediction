@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     NEWS_QUERY: str = "landslide OR landslip OR mudslide india"
     NEWS_TIMESPAN_HOURS: int = 24
     NEWS_MAX_RECORDS: int = 50
-NEWS_ROAD_STATUS_ENABLED: bool = True
+    NEWS_ROAD_STATUS_ENABLED: bool = True
 
     # Risk threshold defaults (configurable from admin)
     RISK_LEVELS: ClassVar[dict] = {
