@@ -76,9 +76,12 @@ def _is_northeast(text: str) -> bool:
 
 
 def _fetch_google_rss() -> list[dict]:
+    days = max(1, round(settings.NEWS_TIMESPAN_HOURS / 24))
     url = "https://news.google.com/rss/search"
-    params = {"q": settings.NEWS_QUERY, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}
-    resp = httpx.get(url, params=params, timeout=20, follow_redirects=True)
+    params = {"q": f"({settings.NEWS_QUERY}) when:{days}d",
+              "hl": "en-IN", "gl": "IN", "ceid": "IN:en"}
+    resp = httpx.get(url, params=params, timeout=20, follow_redirects=True,
+                     headers={"User-Agent": "Mozilla/5.0 (compatible; LandslideMonitor/1.0)"})
     resp.raise_for_status()
     root = ET.fromstring(resp.text)
     items = []

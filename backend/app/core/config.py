@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     # News automation (auto-incident ingestion from news channels)
     NEWS_ENABLED: bool = True
     NEWS_PROVIDER: str = "auto"  # auto|google_rss|gdelt|mock
-    NEWS_QUERY: str = "landslide OR landslip OR mudslide northeast india"
+    NEWS_QUERY: str = "landslide OR landslip OR mudslide india"
     NEWS_TIMESPAN_HOURS: int = 24
     NEWS_MAX_RECORDS: int = 50
 
