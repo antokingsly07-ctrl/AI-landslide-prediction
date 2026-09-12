@@ -282,7 +282,11 @@ def process_news_incidents(db: Session) -> int:
             continue
         loc = _resolve_location(db, text)
         itype, severity = _classify(text)
-        desc = f"{_strip_html(item.get('title'))} — {_strip_html(item.get('description'))}".strip(" —")
+        title_s = _strip_html(item.get("title"))
+        desc_s = _strip_html(item.get("description"))
+        if desc_s.lower().startswith(title_s.lower()):
+            desc_s = desc_s[len(title_s):].strip(" ,.–—")
+        desc = f"{title_s} — {desc_s}".strip(" —")
         dup = next((d for d in db.scalars(select(Incident).where(
             Incident.source == "auto_news",
             Incident.reported_at >= _now() - timedelta(days=30))).all()
