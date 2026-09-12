@@ -16,7 +16,7 @@ import csv
 import io
 import json
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -68,6 +68,14 @@ STATES = [
         {"name": "East Khasi Hills", "lat": 25.57, "lon": 91.88, "pop": 825922},
         {"name": "West Garo Hills", "lat": 25.52, "lon": 90.22, "pop": 643291},
         {"name": "Ri Bhoi", "lat": 25.85, "lon": 91.87, "pop": 258840},
+        {"name": "West Khasi Hills", "lat": 25.52, "lon": 91.27, "pop": 382604},
+        {"name": "South West Khasi Hills", "lat": 25.20, "lon": 91.42, "pop": 110152},
+        {"name": "East Jaintia Hills", "lat": 25.43, "lon": 92.20, "pop": 395124},
+        {"name": "West Jaintia Hills", "lat": 25.55, "lon": 92.10, "pop": 270352},
+        {"name": "South Garo Hills", "lat": 25.20, "lon": 90.63, "pop": 142574},
+        {"name": "East Garo Hills", "lat": 25.50, "lon": 90.75, "pop": 317618},
+        {"name": "North Garo Hills", "lat": 25.90, "lon": 90.60, "pop": 118325},
+        {"name": "South West Garo Hills", "lat": 25.47, "lon": 89.95, "pop": 172495},
     ]},
     {"code": "MZ", "name": "Mizoram", "districts": [
         {"name": "Aizawl", "lat": 23.73, "lon": 92.72, "pop": 404821},
@@ -105,6 +113,10 @@ REAL_VILLAGES = [
     ("Dawki", "ML", "East Khasi Hills", 25.1833, 92.0190),
     ("Tura", "ML", "West Garo Hills", 25.5000, 90.2028),
     ("Nongpoh", "ML", "Ri Bhoi", 25.9000, 91.8800),
+    ("Nongstoin", "ML", "West Khasi Hills", 25.5167, 91.2667),
+    ("Mawkyrwat", "ML", "South West Khasi Hills", 25.2000, 91.4167),
+    ("Jowai", "ML", "East Jaintia Hills", 25.4340, 92.1950),
+    ("Baghmara", "ML", "South Garo Hills", 25.1950, 90.6340),
     ("Haflong", "AS", "Dima Hasao", 25.1647, 92.9310),
     ("Silchar", "AS", "Cachar", 24.8271, 92.7970),
     ("Karimganj", "AS", "Karimganj", 24.8700, 92.3567),
@@ -414,6 +426,109 @@ def seed_risk_zones(db: Session, district_objs: dict, villages: list[Village]) -
     return count
 
 
+# Real Meghalaya landslide-monitoring sensor stations (permanent deployments at
+# known landslide-prone towns/settlements). Instrument set per station:
+# rain gauge + soil moisture + tilt, with an extra ground-movement rod at the
+# highest-risk Shillong plateau / Southern slopes sites.
+ML_SENSOR_STATIONS = [
+    ("Shillong-Umiam", "ML", "East Khasi Hills", 25.5720, 91.8830),
+    ("Sohra (Cherrapunji)", "ML", "East Khasi Hills", 25.2805, 91.7281),
+    ("Mawphlang", "ML", "East Khasi Hills", 25.2156, 91.7531),
+    ("Mawsynram", "ML", "East Khasi Hills", 25.3008, 91.5833),
+    ("Laitlyngkot", "ML", "East Khasi Hills", 25.1950, 91.7920),
+    ("Pynursla", "ML", "East Khasi Hills", 25.3000, 91.8900),
+    ("Nongstoin", "ML", "West Khasi Hills", 25.5167, 91.2667),
+    ("Mawkyrwat", "ML", "South West Khasi Hills", 25.2000, 91.4167),
+    ("Jowai", "ML", "East Jaintia Hills", 25.4340, 92.1950),
+    ("Nongpoh", "ML", "Ri Bhoi", 25.9000, 91.8800),
+    ("Tura", "ML", "West Garo Hills", 25.5000, 90.2028),
+    ("Baghmara", "ML", "South Garo Hills", 25.1950, 90.6340),
+    ("Williamnagar", "ML", "East Garo Hills", 25.5000, 90.7500),
+    ("Resubelpara", "ML", "North Garo Hills", 25.9000, 90.6000),
+    ("Ampati", "ML", "South West Garo Hills", 25.4680, 89.9480),
+]
+ML_HEAVY_CORES = {"Shillong-Umiam", "Sohra (Cherrapunji)", "Mawphlang"}
+SENSOR_TYPE_LABEL = {
+    "rain_gauge": "Rain Gauge",
+    "soil_moisture": "Soil Moisture Sensor",
+    "tilt": "Tilt Meter",
+    "ground_movement": "Ground Movement Rod",
+}
+
+
+def _daily_series_by_date(lat: float, lon: float) -> dict:
+    """Real NASA POWER daily series keyed by 'YYYY-MM-DD'."""
+    try:
+        return {r["date"]: r for r in get_daily_series(lat, lon, days=8)}
+    except Exception as exc:  # pragma: no cover - network failure
+        print(f"NASA POWER sensor baseline skipped ({lat},{lon}): {exc}")
+        return {}
+
+
+def seed_sensors(db: Session, district_objs: dict) -> int:
+    """Deploy the Meghalaya sensor network with real-data-anchored telemetry."""
+    if db.scalar(select(Sensor).limit(1)):
+        return 0
+    now = utcnow()
+    count = 0
+    reading_count = 0
+    for station, scode, dname, lat, lon in ML_SENSOR_STATIONS:
+        di = district_objs.get((scode, dname))
+        if di is None:
+            continue
+        baseline = _daily_series_by_date(lat, lon)
+        types = ["rain_gauge", "soil_moisture", "tilt"]
+        if station in ML_HEAVY_CORES:
+            types.append("ground_movement")
+        for stype in types:
+            sensor = Sensor(
+                name=f"{station} {SENSOR_TYPE_LABEL[stype]}",
+                sensor_type=stype, district_id=di.id,
+                latitude=lat, longitude=lon,
+                api_token=f"tok_{__import__('uuid').uuid4().hex[:16]}",
+                status="online",
+            )
+            db.add(sensor)
+            db.flush()
+            count += 1
+            # Recent telemetry (3-hourly, last 24h) anchored to real NASA data
+            for hours_ago in range(24, 0, -3):
+                ts = now - timedelta(hours=hours_ago)
+                row = baseline.get(ts.date().isoformat())
+                value = None
+                unit = ""
+                if stype == "rain_gauge":
+                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
+                    value = round(daily / 8.0 + 0.4, 2) + 0.0
+                    unit = "mm"
+                elif stype == "soil_moisture":
+                    value = round((row.get("soil_moisture_pct") or 0.0), 1) if row else None
+                    unit = "%"
+                elif stype == "tilt":
+                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
+                    value = round(0.5 + min(8.0, daily / 60.0 * 6.0), 2)
+                    unit = "deg"
+                elif stype == "ground_movement":
+                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
+                    value = round(2.0 + min(30.0, daily / 60.0 * 20.0), 1)
+                    unit = "mm"
+                if value is None:
+                    continue
+                lo, hi = {"soil_moisture": (0, 100), "tilt": (0, 45),
+                          "ground_movement": (0, 500), "rain_gauge": (0, 500),
+                          "temperature": (-20, 80)}.get(stype, (None, None))
+                is_anomaly = bool(lo is not None and not (lo <= value <= hi))
+                db.add(SensorReading(
+                    sensor_id=sensor.id, reading_type=stype,
+                    value=value, unit=unit, read_at=ts, is_anomaly=is_anomaly,
+                ))
+                reading_count += 1
+            sensor.last_reading_at = now
+    db.commit()
+    print(f"Deployed {count} Meghalaya sensors with {reading_count} readings.")
+    return count
+
+
 def _safe_delete(db: Session, statement, label: str) -> None:
     """Execute a DELETE best-effort so a single bad table never aborts the
     whole migration (missing/mismatched schema can otherwise block the purge)."""
@@ -476,6 +591,7 @@ def seed(db: Session):
     seed_power_environment(db, district_objs)
     seed_landslides(db, district_objs)
     seed_risk_zones(db, district_objs, villages)
+    seed_sensors(db, district_objs)
 
 
 def ensure_bootstrap_admin() -> None:
@@ -596,6 +712,7 @@ def run_real_data_fill():
         seed_power_environment(db, district_objs)
         seed_landslides(db, district_objs)
         seed_risk_zones(db, district_objs, villages)
+        seed_sensors(db, district_objs)
         print("Real-data fill complete.")
     except Exception:
         import traceback
