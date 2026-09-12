@@ -135,6 +135,26 @@ def news_scan(db: Session = Depends(get_db),
         return {"error": repr(exc)}
 
 
+@router.post("/recompute-priorities")
+def recompute_priorities(db: Session = Depends(get_db),
+                         user: User = Depends(require_min_role("disaster_mgmt"))):
+    """Recompute priority scores/classes stored in emergency_responses."""
+    from app.models.risk import EmergencyResponse
+    from app.services.priority_service import compute_priority
+
+    rows = db.scalars(select(Incident).where(Incident.status != "resolved")).all()
+    updated = 0
+    for inc in rows:
+        prio = compute_priority(inc, db)
+        er = db.scalar(select(EmergencyResponse).where(EmergencyResponse.incident_id == inc.id))
+        if er:
+            er.priority_score = prio["priority_score"]
+            er.priority_class = prio["priority_class"]
+            updated += 1
+    db.commit()
+    return {"updated": updated}
+
+
 @router.get("/districts")
 def list_districts(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = db.scalars(select(District).order_by(District.name)).all()
