@@ -214,6 +214,39 @@ def _resolve_location(db: Session, text: str) -> dict | None:
     return best[1] if best else None
 
 
+def diagnose_news(db: Session) -> dict:
+    """Dry-run news pipeline diagnostics (no DB writes)."""
+    errors = []
+    fetched = []
+    provider = settings.NEWS_PROVIDER
+    attempts = ["google_rss", "gdelt"] if provider == "auto" else [provider]
+    for p in attempts:
+        try:
+            fetched = _fetch_google_rss() if p == "google_rss" else _fetch_gdelt()
+            if fetched:
+                provider = p
+                break
+        except Exception as exc:
+            errors.append(f"{p}: {exc}")
+    relevant = [x for x in fetched if _is_relevant(f"{x.get('title')} {x.get('description')}")]
+    ne = [x for x in relevant if _is_northeast(f"{x.get('title')} {x.get('description')}")]
+    resolved = 0
+    for x in ne:
+        if _resolve_location(db, f"{x.get('title')} {x.get('description')}"):
+            resolved += 1
+    return {
+        "enabled": settings.NEWS_ENABLED,
+        "configured_provider": provider if fetched else attempts[0],
+        "fetched": len(fetched),
+        "relevant": len(relevant),
+        "northeast": len(ne),
+        "geo_resolved": resolved,
+        "errors": errors,
+        "sample": [{"title": x.get("title"), "domain": x.get("domain"),
+                    "published": str(x.get("published"))} for x in ne[:5]],
+    }
+
+
 def process_news_incidents(db: Session) -> int:
     """Fetch recent news, auto-create new incidents once per article URL."""
     if not settings.NEWS_ENABLED:

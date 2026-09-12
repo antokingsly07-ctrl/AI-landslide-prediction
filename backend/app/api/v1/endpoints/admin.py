@@ -110,6 +110,31 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
     }
 
 
+@router.get("/news-status")
+def news_status(db: Session = Depends(get_db),
+                user: User = Depends(require_min_role("disaster_mgmt"))):
+    """Dry-run diagnostics for the news->incident automation pipeline."""
+    from app.services.news_service import diagnose_news
+
+    return diagnose_news(db)
+
+
+@router.post("/news-scan", status_code=200)
+def news_scan(db: Session = Depends(get_db),
+              user: User = Depends(require_min_role("disaster_mgmt"))):
+    """Manually trigger the news ingestion cycle (same code the monitor runs)."""
+    from app.services.news_service import process_news_incidents
+
+    try:
+        created = process_news_incidents(db)
+        return {"created_incidents": created}
+    except Exception as exc:  # pragma: no cover
+        import traceback
+
+        traceback.print_exc()
+        return {"error": repr(exc)}
+
+
 @router.get("/districts")
 def list_districts(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = db.scalars(select(District).order_by(District.name)).all()
