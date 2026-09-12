@@ -6,6 +6,7 @@ Geo location, and auto-creates incidents (with priority + alert + audit log).
 Duplicates are de-duplicated via a persistent URL tracker in SystemConfig, so
 the same article is only ingested once regardless of how often the monitor runs.
 """
+import html
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -61,6 +62,10 @@ def _classify(text: str) -> tuple[str, str]:
         itype = "slope_movement"
     severity = "high" if any(k in t for k in HIGH_SEVERITY) else "medium"
     return itype, severity
+
+
+def _strip_html(text: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", text or "")).strip()
 
 
 def _is_relevant(text: str) -> bool:
@@ -277,7 +282,7 @@ def process_news_incidents(db: Session) -> int:
             status="reported",
             severity=severity,
             verification_status="pending",
-            description=f"{item.get('title')} — {item.get('description') or ''}".strip(" —"),
+            description=f"{_strip_html(item.get('title'))} — {_strip_html(item.get('description'))}".strip(" —"),
             latitude=loc["latitude"] if loc else None,
             longitude=loc["longitude"] if loc else None,
             district_id=loc["district_id"] if loc else None,
