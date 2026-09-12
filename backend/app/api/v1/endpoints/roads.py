@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.deps import get_current_user, require_min_role
@@ -74,6 +74,7 @@ def delete_road(id: str,
     road = db.get(Road, id)
     if not road:
         raise HTTPException(status_code=404, detail="Road not found")
+    db.execute(delete(RoadStatusHistory).where(RoadStatusHistory.road_id == id))
     audit(db, "road.delete", "road", road.id, f"Deleted road: {road.name}", user.id)
     db.delete(road)
     db.commit()
