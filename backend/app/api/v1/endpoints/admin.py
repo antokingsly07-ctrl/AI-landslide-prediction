@@ -62,7 +62,7 @@ def system_health(db: Session = Depends(get_db), user: User = Depends(require_mi
     try:
         from app.services.notification_service import notification_service
         sms_provider = notification_service.providers.get("sms")
-        notif_provider = sms_provider.name if sms_provider else "none"
+        notif_provider = getattr(sms_provider, "effective_name", None) or (sms_provider.name if sms_provider else "none")
         notif_configured = "fast2sms" in notif_provider
     except Exception as e:
         notif_provider = f"error: {e}"

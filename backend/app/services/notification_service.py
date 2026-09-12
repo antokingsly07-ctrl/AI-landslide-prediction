@@ -28,6 +28,12 @@ class SMSSProvider(NotificationProvider):
     def __init__(self, provider: str = ""):
         self.provider = provider or settings.SMS_PROVIDER or "mock"
 
+    @property
+    def effective_name(self) -> str:
+        if self.provider == "fast2sms" and settings.FAST2SMS_API_KEY:
+            return "fast2sms"
+        return "mock_sms"
+
     def send(self, recipient, subject, message, **kwargs):
         if self.provider == "fast2sms":
             return Fast2SMSSMSProvider().send(recipient, subject, message, **kwargs)
