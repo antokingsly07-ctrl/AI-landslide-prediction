@@ -45,7 +45,8 @@ def list_sensors(
     now = datetime.now(timezone.utc)
     out = []
     for s in sensors:
-        s.status = _compute_health(s, now)
+        if s.status != "planned":
+            s.status = _compute_health(s, now)
         out.append(SensorOut(
             id=s.id, name=s.name, sensor_type=s.sensor_type, status=s.status,
             latitude=s.latitude, longitude=s.longitude,
@@ -86,7 +87,11 @@ def ingest_reading(payload: SensorReadingIn, db: Session = Depends(get_db)):
     anomaly_limits = {
         "soil_moisture": (0, 100),
         "tilt": (0, 45),
+        "inclinometer": (0, 45),
         "ground_movement": (0, 500),
+        "extensometer": (0, 500),
+        "piezometer": (0, 600),
+        "geophone": (0, 1000),
         "temperature": (-20, 80),
         "rain_gauge": (0, 500),
     }

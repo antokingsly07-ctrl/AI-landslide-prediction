@@ -12,7 +12,7 @@ export default function Sensors() {
   }, []);
 
   const healthColor = (s: Sensor) =>
-    s.status === "online" || s.status === "active" ? "bg-green-100 text-green-700" : s.status === "warning" ? "bg-amber-100 text-amber-700" : s.status === "maintenance" ? "bg-blue-100 text-blue-700" : s.status === "critical" ? "bg-red-100 text-red-700 font-bold" : "bg-red-100 text-red-700";
+    s.status === "online" || s.status === "active" ? "bg-green-100 text-green-700" : s.status === "warning" ? "bg-amber-100 text-amber-700" : s.status === "maintenance" ? "bg-blue-100 text-blue-700" : s.status === "critical" ? "bg-red-100 text-red-700 font-bold" : s.status === "planned" ? "bg-slate-100 text-slate-600" : "bg-red-100 text-red-700";
 
   return (
     <div className="space-y-4">
@@ -24,6 +24,7 @@ export default function Sensors() {
           <span>Maintenance: <strong>{sensors.filter((s) => s.status === "maintenance").length}</strong></span>
           <span>Warning: <strong>{sensors.filter((s) => s.status === "warning").length}</strong></span>
           <span>Offline: <strong>{sensors.filter((s) => s.status === "offline").length}</strong></span>
+          <span>Planned: <strong>{sensors.filter((s) => s.status === "planned").length}</strong></span>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

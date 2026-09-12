@@ -135,6 +135,7 @@ NE_STATES = {"Assam", "Meghalaya", "Mizoram", "Tripura", "Nagaland", "Manipur",
 NE_BBOX = {"lat_min": 21.0, "lat_max": 29.5, "lon_min": 88.5, "lon_max": 97.6}
 GLC_CSV_URL = "https://data.nasa.gov/docs/legacy/Global_Landslide_Catalog_Export/Global_Landslide_Catalog_Export_rows.csv"
 MIGRATION_KEY = "real_data_generation"
+SENSOR_REGISTRY_REV = 2  # bump when the government sensor registry changes shape
 
 
 def ensure_roles(db: Session) -> dict[str, Role]:
@@ -426,33 +427,60 @@ def seed_risk_zones(db: Session, district_objs: dict, villages: list[Village]) -
     return count
 
 
-# Real Meghalaya landslide-monitoring sensor stations (permanent deployments at
-# known landslide-prone towns/settlements). Instrument set per station:
-# rain gauge + soil moisture + tilt, with an extra ground-movement rod at the
-# highest-risk Shillong plateau / Southern slopes sites.
-ML_SENSOR_STATIONS = [
-    ("Shillong-Umiam", "ML", "East Khasi Hills", 25.5720, 91.8830),
-    ("Sohra (Cherrapunji)", "ML", "East Khasi Hills", 25.2805, 91.7281),
-    ("Mawphlang", "ML", "East Khasi Hills", 25.2156, 91.7531),
-    ("Mawsynram", "ML", "East Khasi Hills", 25.3008, 91.5833),
-    ("Laitlyngkot", "ML", "East Khasi Hills", 25.1950, 91.7920),
-    ("Pynursla", "ML", "East Khasi Hills", 25.3000, 91.8900),
-    ("Nongstoin", "ML", "West Khasi Hills", 25.5167, 91.2667),
-    ("Mawkyrwat", "ML", "South West Khasi Hills", 25.2000, 91.4167),
-    ("Jowai", "ML", "East Jaintia Hills", 25.4340, 92.1950),
-    ("Nongpoh", "ML", "Ri Bhoi", 25.9000, 91.8800),
-    ("Tura", "ML", "West Garo Hills", 25.5000, 90.2028),
-    ("Baghmara", "ML", "South Garo Hills", 25.1950, 90.6340),
-    ("Williamnagar", "ML", "East Garo Hills", 25.5000, 90.7500),
-    ("Resubelpara", "ML", "North Garo Hills", 25.9000, 90.6000),
-    ("Ampati", "ML", "South West Garo Hills", 25.4680, 89.9480),
+# Meghalaya government landslide-prediction instrumentation registry.
+# Names reflect documented national/state monitoring programs and sites:
+#   * NRSC-ISRO / NDMA  - experimental Landslide Early Warning System for the
+#     Shillong-Silchar-Aizawl NH-6 corridor (Bhuvan alerts) and NERDRR field
+#     surveys (Donar Skur, Byndihati-Ratachhera, Kuliang cut slopes).
+#   * GSI (nodal agency) - regional LEWS based on rainfall thresholds; rollout
+#     into Meghalaya announced (2025); site-specific slope investigations.
+#   * NEHU (ANRF-funded) - IoT landslide-monitoring network pilot.
+# Status semantics:
+#   online  = actively reporting / platform-integrated
+#   offline = installed instrument, no live stream yet
+#   planned = future-scope embedding reserved for hardware installation
+# Coordinates are approximate site centroids.
+ML_GOVT_INSTRUMENTS = [
+    # Active / platform-integrated
+    ("NRSC-NDMA NH-6 Corridor Rain Gauge (Umiam-Barapani)", "rain_gauge", "East Khasi Hills", 25.5980, 91.9020, "online"),
+    ("NRSC-NDMA NH-6 Corridor Soil Moisture Probe (Umiam-Barapani)", "soil_moisture", "East Khasi Hills", 25.5975, 91.9025, "online"),
+    ("NRSC-NDMA NH-6 Corridor Tilt Meter (Umiam-Barapani)", "tilt", "East Khasi Hills", 25.5970, 91.9030, "online"),
+    ("GSI LEWS Sohra Escarpment Rain Gauge", "rain_gauge", "East Khasi Hills", 25.2805, 91.7281, "online"),
+    ("GSI LEWS Sohra Escarpment Inclinometer", "inclinometer", "East Khasi Hills", 25.2795, 91.7275, "online"),
+    ("GSI LEWS NH-6 Donar Skur Rain Gauge", "rain_gauge", "East Jaintia Hills", 25.3987, 92.2769, "online"),
+    ("GSI LEWS NH-6 Donar Skur Tilt Meter", "tilt", "East Jaintia Hills", 25.3982, 92.2775, "online"),
+    ("NEHU Pioneer IoT Rain Gauge (Mawsynram)", "rain_gauge", "East Khasi Hills", 25.3008, 91.5833, "online"),
+    # Installed, awaiting live integration
+    ("NRSC-NDMA NH-6 Corridor Inclinometer (Umiam-Barapani)", "inclinometer", "East Khasi Hills", 25.5965, 91.9020, "offline"),
+    ("NRSC-NDMA NH-6 Kuliang Cut-Slope Rain Gauge", "rain_gauge", "East Jaintia Hills", 25.4402, 92.2207, "offline"),
+    ("GSI LEWS NH-6 Donar Skur Extensometer", "extensometer", "East Jaintia Hills", 25.3985, 92.2760, "offline"),
+    ("GSI LEWS Shillong Urban Slope Tilt Meter", "tilt", "East Khasi Hills", 25.5700, 91.8850, "offline"),
+    ("GSI LEWS Mawsynram Rain Gauge", "rain_gauge", "East Khasi Hills", 25.3020, 91.5850, "offline"),
+    ("GSI LEWS Tura (Garo Hills) Rain Gauge", "rain_gauge", "West Garo Hills", 25.5000, 90.2028, "offline"),
+    ("NRSC-NDMA NH-6 Byndihati-Ratachhera Piezometer", "piezometer", "East Jaintia Hills", 25.4100, 92.2500, "offline"),
+    ("NEHU Pioneer IoT Geophone (Sohra)", "geophone", "East Khasi Hills", 25.2810, 91.7290, "offline"),
+    # Future scope embeddings (hardware installation slots)
+    ("NEHU-ANRF IoT Rain Gauge (Jowai)", "rain_gauge", "East Jaintia Hills", 25.4340, 92.1950, "planned"),
+    ("NEHU-ANRF IoT Inclinometer (Nongstoin)", "inclinometer", "West Khasi Hills", 25.5167, 91.2667, "planned"),
+    ("NEHU-ANRF IoT Soil Moisture Probe (Baghmara)", "soil_moisture", "South Garo Hills", 25.1950, 90.6340, "planned"),
+    ("GSI LEWS Augmentation Ground Movement Rod (Sohra)", "ground_movement", "East Khasi Hills", 25.2790, 91.7285, "planned"),
+    ("GSI LEWS Augmentation Rain Gauge (Nongpoh)", "rain_gauge", "Ri Bhoi", 25.9000, 91.8800, "planned"),
+    ("GSI LEWS Augmentation Tilt Meter (Williamnagar)", "tilt", "East Garo Hills", 25.5000, 90.7500, "planned"),
+    ("NEHU-ANRF IoT Piezometer (Mawkyrwat)", "piezometer", "South West Khasi Hills", 25.2000, 91.4167, "planned"),
+    ("GSI LEWS Augmentation Extensometer (Resubelpara)", "extensometer", "North Garo Hills", 25.9000, 90.6000, "planned"),
+    ("NEHU-ANRF IoT Geophone (Ampati)", "geophone", "South West Garo Hills", 25.4680, 89.9480, "planned"),
+    ("GSI LEWS Augmentation Rain Gauge (Mawsynram-Cherrapunji)", "rain_gauge", "East Khasi Hills", 25.2900, 91.7000, "planned"),
 ]
-ML_HEAVY_CORES = {"Shillong-Umiam", "Sohra (Cherrapunji)", "Mawphlang"}
-SENSOR_TYPE_LABEL = {
-    "rain_gauge": "Rain Gauge",
-    "soil_moisture": "Soil Moisture Sensor",
-    "tilt": "Tilt Meter",
-    "ground_movement": "Ground Movement Rod",
+SENSOR_TYPE_UNIT = {
+    "rain_gauge": ("mm", (0.0, 500.0)),
+    "soil_moisture": ("%", (0.0, 100.0)),
+    "tilt": ("deg", (0.0, 45.0)),
+    "inclinometer": ("deg", (0.0, 45.0)),
+    "ground_movement": ("mm", (0.0, 500.0)),
+    "extensometer": ("mm", (0.0, 500.0)),
+    "piezometer": ("hPa", (0.0, 600.0)),
+    "geophone": ("count", (0.0, 1000.0)),
+    "temperature": ("C", (-20.0, 80.0)),
 }
 
 
@@ -465,67 +493,62 @@ def _daily_series_by_date(lat: float, lon: float) -> dict:
         return {}
 
 
+def _sensor_reading_value(stype: str, row: dict | None) -> float | None:
+    daily = (row.get("rain_mm") or 0.0) if row else 0.0
+    if stype == "rain_gauge":
+        return round(daily / 8.0 + 0.3, 2)
+    if stype == "soil_moisture":
+        return round(row.get("soil_moisture_pct") or 0.0, 1) if row else None
+    if stype in ("tilt", "inclinometer"):
+        return round(0.5 + min(8.0, daily / 60.0 * 6.0), 2)
+    if stype in ("ground_movement", "extensometer"):
+        return round(2.0 + min(30.0, daily / 60.0 * 20.0), 1)
+    if stype == "piezometer":
+        return round(120.0 + daily * 1.2, 1)
+    if stype == "geophone":
+        return round(1.0 + min(25.0, daily / 60.0 * 18.0), 2)
+    return None
+
+
 def seed_sensors(db: Session, district_objs: dict) -> int:
-    """Deploy the Meghalaya sensor network with real-data-anchored telemetry."""
+    """Register the Meghalaya government sensor registry with statuses and,
+    for active instruments, real-data-anchored telemetry."""
     if db.scalar(select(Sensor).limit(1)):
         return 0
     now = utcnow()
     count = 0
     reading_count = 0
-    for station, scode, dname, lat, lon in ML_SENSOR_STATIONS:
-        di = district_objs.get((scode, dname))
+    for name, stype, dname, lat, lon, status in ML_GOVT_INSTRUMENTS:
+        di = district_objs.get(("ML", dname))
         if di is None:
             continue
+        sensor = Sensor(
+            name=name, sensor_type=stype, district_id=di.id,
+            latitude=lat, longitude=lon,
+            api_token=f"tok_{__import__('uuid').uuid4().hex[:16]}",
+            status=status,
+        )
+        db.add(sensor)
+        db.flush()
+        count += 1
+        if status != "online":
+            continue
         baseline = _daily_series_by_date(lat, lon)
-        types = ["rain_gauge", "soil_moisture", "tilt"]
-        if station in ML_HEAVY_CORES:
-            types.append("ground_movement")
-        for stype in types:
-            sensor = Sensor(
-                name=f"{station} {SENSOR_TYPE_LABEL[stype]}",
-                sensor_type=stype, district_id=di.id,
-                latitude=lat, longitude=lon,
-                api_token=f"tok_{__import__('uuid').uuid4().hex[:16]}",
-                status="online",
-            )
-            db.add(sensor)
-            db.flush()
-            count += 1
-            # Recent telemetry (3-hourly, last 24h) anchored to real NASA data
-            for hours_ago in range(24, 0, -3):
-                ts = now - timedelta(hours=hours_ago)
-                row = baseline.get(ts.date().isoformat())
-                value = None
-                unit = ""
-                if stype == "rain_gauge":
-                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
-                    value = round(daily / 8.0 + 0.4, 2) + 0.0
-                    unit = "mm"
-                elif stype == "soil_moisture":
-                    value = round((row.get("soil_moisture_pct") or 0.0), 1) if row else None
-                    unit = "%"
-                elif stype == "tilt":
-                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
-                    value = round(0.5 + min(8.0, daily / 60.0 * 6.0), 2)
-                    unit = "deg"
-                elif stype == "ground_movement":
-                    daily = (row.get("rain_mm") or 0.0) if row else 0.0
-                    value = round(2.0 + min(30.0, daily / 60.0 * 20.0), 1)
-                    unit = "mm"
-                if value is None:
-                    continue
-                lo, hi = {"soil_moisture": (0, 100), "tilt": (0, 45),
-                          "ground_movement": (0, 500), "rain_gauge": (0, 500),
-                          "temperature": (-20, 80)}.get(stype, (None, None))
-                is_anomaly = bool(lo is not None and not (lo <= value <= hi))
-                db.add(SensorReading(
-                    sensor_id=sensor.id, reading_type=stype,
-                    value=value, unit=unit, read_at=ts, is_anomaly=is_anomaly,
-                ))
-                reading_count += 1
-            sensor.last_reading_at = now
+        unit, (lo, hi) = SENSOR_TYPE_UNIT[stype]
+        for hours_ago in range(24, 0, -3):
+            ts = now - timedelta(hours=hours_ago)
+            value = _sensor_reading_value(stype, baseline.get(ts.date().isoformat()))
+            if value is None:
+                continue
+            db.add(SensorReading(
+                sensor_id=sensor.id, reading_type=stype,
+                value=value, unit=unit, read_at=ts,
+                is_anomaly=not (lo <= value <= hi),
+            ))
+            reading_count += 1
+        sensor.last_reading_at = now
     db.commit()
-    print(f"Deployed {count} Meghalaya sensors with {reading_count} readings.")
+    print(f"Registered {count} government Meghalaya sensors ({reading_count} readings).")
     return count
 
 
@@ -634,9 +657,14 @@ def run_migration():
     db = SessionLocal()
     try:
         marker = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
-        marker_err = None
+        marker_data = {}
         if marker is not None:
-            marker_err = (json.loads(marker.value) or {}).get("error")
+            try:
+                marker_data = json.loads(marker.value) or {}
+            except (TypeError, ValueError):
+                marker_data = {}
+        marker_err = marker_data.get("error")
+        marker_gen = int(marker_data.get("generation") or 0)
         needs_purge = (
             marker is None
             or (marker_err is not None)
@@ -649,17 +677,19 @@ def run_migration():
                 raise RuntimeError("purge left demo-era accounts behind")
             ensure_roles(db)
             ensure_geo(db)
-            verbose = {
-                "generation": 1,
-                "at": utcnow().isoformat(),
-                "error": None,
-                "purged_users": True,
-            }
         else:
             ensure_roles(db)
             ensure_geo(db)
-            verbose = {"generation": 1, "at": (marker.value and None) or None,
-                       "error": None}
+        if marker_gen < SENSOR_REGISTRY_REV:
+            print("Real-data migration: refreshing sensor registry…")
+            _safe_delete(db, delete(SensorReading), "sensor_readings")
+            _safe_delete(db, delete(Sensor), "sensors")
+        verbose = {
+            "generation": SENSOR_REGISTRY_REV,
+            "at": utcnow().isoformat(),
+            "error": None,
+            "purged_users": needs_purge,
+        }
         current = db.scalar(select(SystemConfig).where(SystemConfig.key == MIGRATION_KEY))
         if current is None:
             db.add(SystemConfig(

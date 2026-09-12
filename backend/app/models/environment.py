@@ -18,7 +18,7 @@ class Sensor(BaseGeo):
     name: Mapped[str] = mapped_column(String(150))
     sensor_type: Mapped[str] = mapped_column(
         String(50), default="soil_moisture"
-    )  # soil_moisture|rain_gauge|tilt|ground_movement|temperature
+    )  # soil_moisture|rain_gauge|tilt|ground_movement|temperature|inclinometer|piezometer|extensometer|geophone
     district_id: Mapped[str] = mapped_column(ForeignKey("districts.id"), nullable=True)
     api_token: Mapped[str] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="online")  # online|offline|warning|critical

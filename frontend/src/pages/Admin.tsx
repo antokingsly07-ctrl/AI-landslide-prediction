@@ -174,7 +174,7 @@ export default function Admin() {
             <div>
               <label className="label">Type</label>
               <select className="input" value={newSensorType} onChange={(e) => setNewSensorType(e.target.value)}>
-                {["soil_moisture", "rain_gauge", "tilt", "displacement", "seismic"].map((s) => (
+                {[ "soil_moisture", "rain_gauge", "tilt", "inclinometer", "piezometer", "extensometer", "ground_movement", "geophone", "temperature"].map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
