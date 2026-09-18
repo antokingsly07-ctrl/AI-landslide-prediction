@@ -14,12 +14,26 @@ class RiskMonitor:
         self.interval = interval_seconds or settings.POLL_INTERVAL_SECONDS
         self.running = False
         self.last_sync = None
+        self.last_env_refresh = None
 
     async def run_cycle(self, db):
         from app.services.prediction_service import evaluate_auto_alerts, check_rainfall_alert
         from app.services.news_service import process_news_incidents
 
         total = 0
+        now = time.time()
+        if (
+            self.last_env_refresh is None
+            or now - self.last_env_refresh >= settings.NASA_REFRESH_HOURS * 3600
+        ):
+            try:
+                from database.seed.seed_db import ensure_geo, seed_power_environment
+
+                _, district_objs, _ = ensure_geo(db)
+                seed_power_environment(db, district_objs)
+                self.last_env_refresh = now
+            except Exception as e:
+                print(f"Monitor env-refresh error: {e}")
         try:
             total += len(evaluate_auto_alerts(db))
         except Exception as e:

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     TERRAIN_API_KEY: str = ""
     TERRAIN_BASE_URL: str = "https://api.open-meteo.com/v1/elevation"
     NASA_POWER_BASE_URL: str = "https://power.larc.nasa.gov/api/temporal/daily/point"
+    NASA_REFRESH_HOURS: int = 6
 
     # Live weather providers: auto | openweather | weatherapi | openmeteo | imd | mock
     WEATHER_PROVIDER: str = "auto"

@@ -224,12 +224,37 @@ def seed_terrain(db: Session, district_objs: dict, villages: list[Village]) -> i
     return count
 
 
+def _as_utc(value: datetime | None):
+    """Normalize a datetime to tz-aware UTC (SQLite returns naive datetimes)."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
 def seed_power_environment(db: Session, district_objs: dict) -> int:
-    """Real NASA POWER daily rainfall/soil-moisture/weather for the last 8 days."""
-    if db.scalar(select(RainfallRecord).limit(1)):
-        return 0
+    """Real NASA POWER daily rainfall/soil-moisture/weather for the last 8 days.
+
+    Rolling refresh: inserts only dates newer than each table's latest record
+    per district, so repeated runs stay idempotent and the dashboard's 7-day
+    trend charts never age out. Districts whose latest record is fresh (within
+    the last day, matching NASA's one-day lag) short-circuit without a network
+    call.
+    """
     count = 0
+    fresh_cutoff = datetime.now(timezone.utc) - timedelta(days=1)
     for st, di in district_objs.items():
+        latest_rain = _as_utc(db.scalar(select(func.max(RainfallRecord.observed_at)).where(
+            RainfallRecord.district_id == di.id)))
+        latest_soil = _as_utc(db.scalar(select(func.max(SoilMoistureRecord.observed_at)).where(
+            SoilMoistureRecord.district_id == di.id)))
+        latest_wx = _as_utc(db.scalar(select(func.max(WeatherRecord.observed_at)).where(
+            WeatherRecord.district_id == di.id)))
+        if (
+            latest_rain is not None and latest_rain >= fresh_cutoff
+            and latest_soil is not None and latest_soil >= fresh_cutoff
+            and latest_wx is not None and latest_wx >= fresh_cutoff
+        ):
+            continue
         try:
             rows = get_daily_series(di.latitude, di.longitude, days=8)
         except Exception as exc:  # pragma: no cover - network failure
@@ -244,22 +269,31 @@ def seed_power_environment(db: Session, district_objs: dict) -> int:
             rain3 = rain3[-3:]
             rain7 = rain7[-7:]
             date = datetime.strptime(row["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            db.add(RainfallRecord(
-                latitude=di.latitude, longitude=di.longitude, district_id=di.id,
-                amount_mm=row["rain_mm"] or 0.0, intensity=0.0,
-                rain_1h=0.0, rain_6h=0.0,
-                rain_24h=row["rain_mm"] or 0.0,
-                rain_3d=round(sum(rain3), 1) if rain3 else 0.0,
-                rain_7d=round(sum(rain7), 1) if rain7 else 0.0,
-                observed_at=date, source="nasa-power", is_demo=False,
-            ))
-            if row["soil_moisture_pct"] is not None:
+            if latest_rain is None or date > latest_rain:
+                db.add(RainfallRecord(
+                    latitude=di.latitude, longitude=di.longitude, district_id=di.id,
+                    amount_mm=row["rain_mm"] or 0.0, intensity=0.0,
+                    rain_1h=0.0, rain_6h=0.0,
+                    rain_24h=row["rain_mm"] or 0.0,
+                    rain_3d=round(sum(rain3), 1) if rain3 else 0.0,
+                    rain_7d=round(sum(rain7), 1) if rain7 else 0.0,
+                    observed_at=date, source="nasa-power", is_demo=False,
+                ))
+                count += 1
+            if (
+                row["soil_moisture_pct"] is not None
+                and (latest_soil is None or date > latest_soil)
+            ):
                 db.add(SoilMoistureRecord(
                     latitude=di.latitude, longitude=di.longitude, district_id=di.id,
                     moisture_percent=row["soil_moisture_pct"], depth_cm=30.0,
                     observed_at=date, source="nasa-power",
                 ))
-            if row["temperature_c"] is not None:
+                count += 1
+            if (
+                row["temperature_c"] is not None
+                and (latest_wx is None or date > latest_wx)
+            ):
                 db.add(WeatherRecord(
                     latitude=di.latitude, longitude=di.longitude, district_id=di.id,
                     temperature_c=row["temperature_c"],
@@ -269,9 +303,10 @@ def seed_power_environment(db: Session, district_objs: dict) -> int:
                     forecast="", warning="none",
                     observed_at=date, source="nasa-power",
                 ))
-            count += 1
+                count += 1
     db.commit()
-    print(f"Seeded {count} real NASA POWER environmental records.")
+    if count:
+        print(f"Seeded {count} real NASA POWER environmental records.")
     return count
 
 
