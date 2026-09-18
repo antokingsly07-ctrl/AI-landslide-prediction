@@ -32,12 +32,12 @@ export default function Emergency() {
       <div className="grid gap-3">
         {items.map((it) => (
           <div key={it.incident_id} className="card">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div>
                 <div className="font-semibold capitalize">{it.incident_type}</div>
                 <div className="text-xs text-slate-500 mt-0.5">{it.location}</div>
               </div>
-              <span className={`badge ${priorityColor(it.priority_class)} uppercase`}>
+              <span className={`badge ${priorityColor(it.priority_class)} uppercase self-start sm:self-auto`}>
                 {it.priority_class} priority
               </span>
             </div>

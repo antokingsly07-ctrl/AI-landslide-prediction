@@ -36,7 +36,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-          <div className="bg-slate-900 px-8 py-8 text-center">
+          <div className="bg-slate-900 px-6 sm:px-8 py-6 sm:py-8 text-center">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center text-3xl mb-4">
               ⛰
             </div>
@@ -45,7 +45,7 @@ export default function Login() {
               North-Eastern India · AI-Driven Risk Assessment
             </p>
           </div>
-          <form onSubmit={submit} className="px-8 py-6 space-y-4">
+          <form onSubmit={submit} className="px-5 sm:px-8 py-5 sm:py-6 space-y-4">
             <div>
               <label className="label">{t("auth.email")}</label>
               <input

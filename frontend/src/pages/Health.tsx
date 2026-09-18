@@ -36,8 +36,8 @@ export default function Health() {
         </div>
         <div className="space-y-3">
           {rows.map(([label, val]) => (
-            <div key={label} className="flex items-center justify-between border-b pb-2 last:border-0">
-              <span className="text-sm text-slate-600">{label}</span>
+            <div key={label} className="flex items-center justify-between gap-2 border-b pb-2 last:border-0">
+              <span className="text-sm text-slate-600 min-w-0">{label}</span>
               <span className={`badge ${ping(val)} capitalize`}>{val || "unknown"}</span>
             </div>
           ))}

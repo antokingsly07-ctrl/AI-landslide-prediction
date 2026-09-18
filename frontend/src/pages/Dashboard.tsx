@@ -51,7 +51,7 @@ export default function Dashboard() {
       <div className="hidden">
         <span>{t("safety.disclaimer")}</span>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
         <KPI label={t("dashboard.critical_zones")} value={summary?.critical_zones} color="text-purple-600" />
         <KPI label={t("dashboard.high_risk_zones")} value={summary?.high_risk_zones} color="text-red-600" />
         <KPI label={t("dashboard.active_incidents")} value={summary?.active_incidents} color="text-orange-600" />

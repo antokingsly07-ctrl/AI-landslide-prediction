@@ -166,7 +166,7 @@ export default function Admin() {
 
       {tab === "sensors" && (
         <div className="space-y-4">
-          <form onSubmit={createSensor} className="card flex gap-2 items-end">
+          <form onSubmit={createSensor} className="card flex flex-col sm:flex-row sm:items-end gap-2">
             <div className="flex-1">
               <label className="label">Name</label>
               <input className="input" value={newSensorName} onChange={(e) => setNewSensorName(e.target.value)} required />
@@ -199,18 +199,18 @@ export default function Admin() {
         <div className="card max-w-lg space-y-3">
           {RISK_KEYS.map((k) => (
             <div key={k} className="flex items-center gap-2">
-              <span className="w-28 text-sm capitalize">{k.replace(/_/g, " ")}</span>
+              <span className="w-20 md:w-28 text-xs md:text-sm capitalize shrink-0">{k.replace(/_/g, " ")}</span>
               <input
-                className="input"
+                className="input min-w-0"
                 type="number"
                 value={thresholds[k]?.[0] ?? ""}
                 onChange={(e) =>
                   setThresholds({ ...thresholds, [k]: [Number(e.target.value), thresholds[k]?.[1] ?? 20] })
                 }
               />
-              <span>–</span>
+              <span className="shrink-0">–</span>
               <input
-                className="input"
+                className="input min-w-0"
                 type="number"
                 value={thresholds[k]?.[1] ?? ""}
                 onChange={(e) =>

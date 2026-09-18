@@ -58,7 +58,7 @@ export default function Roads() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-xl font-semibold">{t("nav.roads")}</h2>
         <div className="flex items-center gap-2">
           {atRisk > 0 && (
@@ -134,8 +134,8 @@ export default function Roads() {
 
       <div className="grid gap-3">
         {roads.map((r) => (
-          <div key={r.id} className="card flex items-center justify-between gap-4">
-            <div>
+          <div key={r.id} className="card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+            <div className="min-w-0">
               <div className="font-semibold">{r.name}</div>
               <div className="text-xs text-slate-500 capitalize">
                 {r.road_type} · {r.district_name || "Meghalaya"}
@@ -153,10 +153,10 @@ export default function Roads() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`badge ${roadStatusColor(r.status)} capitalize`}>{r.status}</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className={`badge ${roadStatusColor(r.status)} capitalize shrink-0`}>{r.status}</span>
               <select
-                className="input !w-auto !py-1 text-sm"
+                className="input !w-auto flex-1 sm:flex-none !py-1 text-sm"
                 value={r.status}
                 onChange={(e) => updateStatus(r.id, e.target.value)}
               >

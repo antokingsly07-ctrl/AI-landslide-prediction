@@ -49,8 +49,8 @@ export default function GisMap() {
   });
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col">
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-2 mb-3 flex flex-wrap gap-2 items-center">
+    <div className="h-[calc(100dvh-140px)] md:h-[calc(100vh-140px)] flex flex-col">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-2 mb-3 flex flex-wrap gap-2 md:gap-2 items-center">
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} className="accent-blue-600" />
           <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#f97316" }} />

@@ -26,12 +26,27 @@ export default function Layout() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showAlerts, setShowAlerts] = useState(false);
   const [toast, setToast] = useState<Alert | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useRealtimeAlerts((a) => {
     setAlerts((prev) => [a, ...prev].slice(0, 50));
     setToast(a);
     setTimeout(() => setToast((cur) => (cur?.id === a.id ? null : cur)), 8000);
   });
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     api
@@ -61,10 +76,73 @@ export default function Layout() {
     user?.role || ""
   );
 
+  const closeMenu = () => setMenuOpen(false);
+
+  const navContent = (
+    <>
+      <div className="px-5 py-5 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center font-bold text-white">
+            ⛰
+          </div>
+          <div>
+            <div className="font-semibold leading-tight text-sm">Landslide</div>
+            <div className="text-xs text-slate-400">Early Warning &amp; Monitoring</div>
+          </div>
+        </div>
+      </div>
+      <nav onClick={closeMenu} className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {NAV.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`
+            }
+          >
+            <span className="w-5 text-center">{n.icon}</span>
+            <span>{t(`nav.${n.key}`)}</span>
+          </NavLink>
+        ))}
+        {isAdminRole && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`
+            }
+          >
+            <span className="w-5 text-center">⚙</span>
+            <span>{t("nav.admin")}</span>
+          </NavLink>
+        )}
+        <NavLink
+          to="/health"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`
+          }
+        >
+          <span className="w-5 text-center">♥</span>
+          <span>{t("nav.health")}</span>
+        </NavLink>
+      </nav>
+      <div className="px-4 py-4 border-t border-slate-800 text-xs text-slate-400">
+        {t("safety.disclaimer")}
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-full min-h-screen">
       {toast && (
-        <div className="fixed top-4 right-4 z-[60] w-80 bg-white border-2 border-red-200 rounded-xl shadow-2xl p-4 animate-in">
+        <div className="fixed top-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border-2 border-red-200 rounded-xl shadow-2xl p-4 animate-in">
           <div className="flex items-start gap-2">
             <span className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">!</span>
             <div className="min-w-0">
@@ -75,73 +153,27 @@ export default function Layout() {
           </div>
         </div>
       )}
-      <aside className="w-60 bg-slate-900 text-slate-100 flex flex-col shrink-0">
-        <div className="px-5 py-5 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center font-bold text-white">
-              ⛰
-            </div>
-            <div>
-              <div className="font-semibold leading-tight text-sm">Landslide</div>
-              <div className="text-xs text-slate-400">Early Warning &amp; Monitoring</div>
-            </div>
-          </div>
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                }`
-              }
-            >
-              <span className="w-5 text-center">{n.icon}</span>
-              <span>{t(`nav.${n.key}`)}</span>
-            </NavLink>
-          ))}
-          {isAdminRole && (
-            <NavLink
-              to="/admin"
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                }`
-              }
-            >
-              <span className="w-5 text-center">⚙</span>
-              <span>{t("nav.admin")}</span>
-            </NavLink>
-          )}
-          <NavLink
-            to="/health"
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              }`
-            }
-          >
-            <span className="w-5 text-center">♥</span>
-            <span>{t("nav.health")}</span>
-          </NavLink>
-        </nav>
-        <div className="px-4 py-4 border-t border-slate-800 text-xs text-slate-400">
-          {t("safety.disclaimer")}
-        </div>
+      <aside className="hidden md:flex w-60 bg-slate-900 text-slate-100 flex-col shrink-0">
+        {navContent}
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-          <h1 className="text-lg font-semibold">{t("app")}</h1>
-          <div className="flex items-center gap-4">
+        <header className="bg-white border-b border-slate-200 px-3 md:px-6 py-2 md:py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="md:hidden w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-lg shrink-0"
+              aria-label="Open menu"
+            >
+              ☰
+            </button>
+            <h1 className="text-base md:text-lg font-semibold truncate">{t("app")}</h1>
+          </div>
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
             <select
               value={i18n.language}
               onChange={(e) => changeLang(e.target.value)}
-              className="input !w-auto !py-1.5 text-sm"
+              className="input !w-auto !py-1.5 text-xs md:text-sm"
               aria-label={t("auth.language")}
             >
               {LANGUAGES.map((l) => (
@@ -164,7 +196,7 @@ export default function Layout() {
                 )}
               </button>
               {showAlerts && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto">
+                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto">
                   <div className="px-4 py-3 border-b font-semibold text-sm">
                     {t("alert.title")} ({alerts.length})
                   </div>
@@ -183,19 +215,28 @@ export default function Layout() {
                 </div>
               )}
             </div>
-            <div className="text-right">
+            <div className="hidden md:block text-right">
               <div className="text-sm font-medium">{user?.full_name}</div>
               <div className="text-xs text-slate-500 capitalize">{user?.role}</div>
             </div>
-            <button onClick={logout} className="btn-secondary !py-1.5">
+            <button onClick={logout} className="btn-secondary !py-1.5 !px-3 md:!px-4 shrink-0">
               {t("auth.logout")}
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-3 md:p-6">
           <Outlet />
         </main>
       </div>
+
+      {menuOpen && (
+        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/50" onClick={closeMenu} />
+          <aside className="absolute left-0 top-0 bottom-0 w-64 max-w-[85vw] bg-slate-900 text-slate-100 flex flex-col shadow-2xl">
+            {navContent}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

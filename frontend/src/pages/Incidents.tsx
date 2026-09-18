@@ -19,9 +19,9 @@ export default function Incidents() {
       </div>
       <div className="grid gap-3">
         {incidents.map((i) => (
-          <div key={i.id} className="card flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
+          <div key={i.id} className="card flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold capitalize">{i.incident_type}</span>
                 <span className={`badge ${incidentStatusColor(i.verification_status)} capitalize`}>
                   {i.verification_status}
@@ -55,7 +55,7 @@ export default function Incidents() {
                 </div>
               )}
             </div>
-            <span className={`text-xs uppercase shrink-0 ${i.severity === "critical" ? "text-red-600" : "text-slate-500"}`}>
+            <span className={`text-xs uppercase shrink-0 sm:text-right ${i.severity === "critical" ? "text-red-600" : "text-slate-500"}`}>
               {i.severity}
             </span>
           </div>

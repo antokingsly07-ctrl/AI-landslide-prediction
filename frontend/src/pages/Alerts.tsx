@@ -38,8 +38,8 @@ export default function Alerts() {
       <div className="space-y-3">
         {alerts.map((a) => (
           <div key={a.id} className="card">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+              <div className="flex items-start gap-3 min-w-0">
                 <span className={`badge ${severityColor(a.severity)} uppercase`}>{a.severity}</span>
                 <div>
                   <div className="font-semibold">{a.title}</div>
@@ -64,7 +64,7 @@ export default function Alerts() {
                   </div>
                 </div>
               </div>
-              <div className="text-right shrink-0">
+              <div className="text-left sm:text-right shrink-0">
                 <div className="text-xs text-slate-500">
                   {new Date(a.triggered_at).toLocaleString()}
                 </div>

@@ -43,9 +43,9 @@ export default function Reports() {
       <div className="grid gap-3">
         {reports.map((r) => (
           <div key={r.client_id || r.id} className="card">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold capitalize">{r.report_type}</div>
-              <div className="flex items-center gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-semibold capitalize min-w-0">{r.report_type}</div>
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
                 <span className="badge bg-slate-100 text-slate-700 capitalize">{r.severity}</span>
                 <span
                   className={`badge ${
@@ -62,7 +62,7 @@ export default function Reports() {
               {r.latitude ? ` · (${r.latitude.toFixed(4)}, ${r.longitude?.toFixed(4)})` : ""}
             </div>
             {r.media?.length > 0 && (
-              <div className="flex gap-2 mt-2">
+              <div className="flex gap-2 mt-2 flex-wrap">
                 {r.media.map((m) => (
                   <img key={m.id} src={m.thumb || m.url} alt="" className="w-16 h-16 object-cover rounded-lg" />
                 ))}

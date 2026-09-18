@@ -142,9 +142,9 @@ export default function IncidentReport() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <h2 className="text-xl font-semibold">{t("report.title")}</h2>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span
             className={`badge ${online ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}
           >
@@ -159,7 +159,7 @@ export default function IncidentReport() {
       </div>
 
       <form onSubmit={submit} className="card space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
             <label className="label">{t("report.type")}</label>
             <select className="input" value={reportType} onChange={(e) => setReportType(e.target.value)}>
@@ -228,7 +228,7 @@ export default function IncidentReport() {
         </div>
 
         <div>
-          <button type="button" onClick={() => fileRef.current?.click()} className="btn-secondary">
+          <button type="button" onClick={() => fileRef.current?.click()} className="btn-secondary w-full sm:w-auto">
             📷 {t("report.add_photos")} ({photos.length}/4)
           </button>
           <input
