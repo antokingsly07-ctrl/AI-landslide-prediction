@@ -7,11 +7,14 @@ interface Priority {
   incident_id: string;
   location: string;
   incident_type: string;
+  description?: string | null;
   severity: string;
   population_affected: number;
   priority_score: number;
   priority_class: string;
+  reasons?: string[];
   status: string;
+  responder_notes?: string | null;
   incident_status: string;
 }
 
@@ -47,6 +50,24 @@ export default function Emergency() {
               <span className="badge bg-slate-100 text-slate-700">Score: {it.priority_score}</span>
               <span className="badge bg-slate-100 text-slate-700 capitalize">Response: {it.status}</span>
             </div>
+            {it.reasons && it.reasons.length > 0 && (
+              <div className="mt-3 pt-2 border-t border-slate-100">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+                  Why this priority
+                </div>
+                <ul className="space-y-1">
+                  {it.reasons.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
+                      <span className="text-slate-400 mt-px">▸</span>
+                      <span className="min-w-0">{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {it.responder_notes && (
+              <p className="text-xs text-slate-500 mt-2 italic">{it.responder_notes}</p>
+            )}
           </div>
         ))}
         {items.length === 0 && (

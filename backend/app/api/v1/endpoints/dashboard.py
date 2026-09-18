@@ -190,6 +190,8 @@ def emergency_priorities(
     db: Session = Depends(get_db),
     user: User = Depends(require_min_role("district_admin")),
 ):
+    from app.services.priority_service import compute_priority
+
     rows = db.execute(
         select(EmergencyResponse, Incident)
         .join(Incident, EmergencyResponse.incident_id == Incident.id)
@@ -197,15 +199,21 @@ def emergency_priorities(
     ).all()
     out = []
     for er, inc in rows:
+        prio = compute_priority(inc, db)
         out.append({
             "incident_id": er.incident_id,
             "location": f"({inc.latitude}, {inc.longitude})" if inc.latitude else "Unknown",
             "incident_type": inc.incident_type,
+            "description": inc.description,
             "severity": inc.severity,
             "population_affected": er.population_affected,
             "priority_score": round(er.priority_score, 1),
             "priority_class": er.priority_class,
+            "reason_score": prio["priority_score"],
+            "reason_class": prio["priority_class"],
+            "reasons": prio["reasons"],
             "status": er.status,
+            "responder_notes": er.responder_notes,
             "incident_status": inc.status,
         })
     return out
