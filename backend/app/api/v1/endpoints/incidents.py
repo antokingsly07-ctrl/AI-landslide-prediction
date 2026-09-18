@@ -70,9 +70,11 @@ def emergency_priorities(db: Session = Depends(get_db),
     ).all()
     out = []
     from app.models.risk import RiskPrediction
+    from app.models.geo import District
 
     for inc in rows:
         er = db.scalar(select(EmergencyResponse).where(EmergencyResponse.incident_id == inc.id))
+        dist = db.get(District, inc.district_id) if inc.district_id else None
         pred = db.scalar(
             select(RiskPrediction).where(RiskPrediction.latitude == inc.latitude)
             .order_by(RiskPrediction.predicted_at.desc()).limit(1)
@@ -82,7 +84,10 @@ def emergency_priorities(db: Session = Depends(get_db),
         ) or 0
         out.append({
             "incident_id": inc.id,
-            "location": f"({inc.latitude}, {inc.longitude})" if inc.latitude else "Unknown",
+            "location": (
+                dist.name if dist else f"({inc.latitude}, {inc.longitude})" if inc.latitude and inc.longitude else "Unknown"
+            ),
+            "district": dist.name if dist else None,
             "incident_type": inc.incident_type,
             "risk_score": pred.risk_score if pred else (er.priority_score if er else 0),
             "risk_level": pred.risk_level if pred else "LOW",

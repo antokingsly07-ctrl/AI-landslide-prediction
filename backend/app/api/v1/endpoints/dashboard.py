@@ -193,16 +193,23 @@ def emergency_priorities(
     from app.services.priority_service import compute_priority
 
     rows = db.execute(
-        select(EmergencyResponse, Incident)
+        select(EmergencyResponse, Incident, District)
         .join(Incident, EmergencyResponse.incident_id == Incident.id)
+        .outerjoin(District, District.id == Incident.district_id)
         .order_by(EmergencyResponse.priority_score.desc())
     ).all()
     out = []
-    for er, inc in rows:
+    for er, inc, district in rows:
         prio = compute_priority(inc, db)
+        parts = []
+        if district:
+            parts.append(district.name)
+        if inc.latitude is not None and inc.longitude is not None:
+            parts.append(f"({inc.latitude:.4f}, {inc.longitude:.4f})")
         out.append({
             "incident_id": er.incident_id,
-            "location": f"({inc.latitude}, {inc.longitude})" if inc.latitude else "Unknown",
+            "location": ", ".join(parts) if parts else "Unknown",
+            "district": district.name if district else None,
             "incident_type": inc.incident_type,
             "description": inc.description,
             "severity": inc.severity,
