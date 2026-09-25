@@ -60,7 +60,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div className="page-in min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           <div className="bg-slate-900 px-6 sm:px-8 py-6 sm:py-8 text-center">

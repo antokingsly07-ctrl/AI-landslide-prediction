@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../store/authStore";
 import { LANGUAGES } from "../i18n/languages";
@@ -27,6 +27,7 @@ export default function Layout() {
   const [showAlerts, setShowAlerts] = useState(false);
   const [toast, setToast] = useState<Alert | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
 
   useRealtimeAlerts((a) => {
     setAlerts((prev) => [a, ...prev].slice(0, 50));
@@ -86,7 +87,7 @@ export default function Layout() {
             ⛰
           </div>
           <div>
-            <div className="font-semibold leading-tight text-sm">Landslide</div>
+            <div className="font-display font-bold leading-tight text-sm">Landslide</div>
             <div className="text-xs text-slate-400">Early Warning &amp; Monitoring</div>
           </div>
         </div>
@@ -225,7 +226,9 @@ export default function Layout() {
           </div>
         </header>
         <main className="flex-1 overflow-auto p-3 md:p-6">
-          <Outlet />
+          <div key={location.pathname} className="page-in">
+            <Outlet />
+          </div>
         </main>
       </div>
 
