@@ -77,10 +77,10 @@ export function roadPredictionLevelColor(level?: string): string {
 
 export function priorityColor(cls: string): string {
   const map: Record<string, string> = {
-    immediate: "bg-red-600 text-white",
-    high: "bg-orange-500 text-white",
+    immediate: "bg-red-700 text-white",
+    high: "bg-red-500 text-white",
     medium: "bg-yellow-500 text-white",
-    low: "bg-slate-300 text-slate-700",
+    low: "bg-green-600 text-white",
   };
   return map[cls] || "bg-slate-300 text-slate-700";
 }
