@@ -5,7 +5,8 @@
 ## Project identity
 - **Repo:** `github.com/antokingsly07-ctrl/AI-landslide-prediction.git` (branch `main`, auto-deploy on push)
 - **Backend:** FastAPI on **Render** -> `https://ai-landslide-prediction-n4kk.onrender.com`
-- **Frontend:** React PWA on **Vercel** (proxies `/api/*` + `/media/*` to Railway via `frontend/vercel.json`; no `VITE_API_URL` needed)
+- **DB:** PostgreSQL on **Aiven** (`DATABASE_URL` on Render env = `postgres://...`; add `sslmode=require`; psycopg3 handles it)
+- **Frontend:** React PWA on **Vercel** -> `https://api-l5j34q8to-antokingsly07-ctrls-projects.vercel.app` (proxies `/api/*` + `/media/*` to the Render service via `frontend/vercel.json`; no `VITE_API_URL` needed - do NOT set it on Vercel or pages will hit a dead URL while WS toasts still work)
 - **API docs:** `/docs`, `/redoc`, `/openapi.json`; API prefix `/api/v1`
 - Product: AI Landslide Early Warning & Monitoring Platform for North-Eastern India (Meghalaya/Assam focus). Global map, dashboards, ML risk, news-driven incidents, field reports, roads, sensors, emergency priorities, PWA offline sync.
 
@@ -21,10 +22,23 @@
 4. **Mobile-only UI redesign** (pushed as `8adab89` after rebase): hamburger slide-out drawer (`md:hidden`), compact mobile header, responsive stacking on all pages, 1-col field report form, 100dvh map, mobile CSS in `index.css` (16px inputs anti-iOS-zoom). Desktop untouched. Rebased over upstream, respected remote's removal of demo-login buttons.
 5. **Emergency priorities -> reasons** (`487e98e`): `priority_service.compute_priority()` now also returns `reasons`; `/dashboard/emergency/priorities` exposes `reasons/description/responder_notes`; Emergency page renders "Why this priority".
 6. **Location fix** (`39b2c05`): emergency location now resolves **district name** (+ coords when present) via District join instead of "Unknown".
-7. **Rainfall/soil-moisture trends no-feed fix** (`821d1b1`, latest functional change): NASA POWER env fill is now a **rolling refresh** - `seed_power_environment()` inserts only dates newer than each district's latest per-table record (idempotent), fresh districts skip network; new `NASA_REFRESH_HOURS=6` config; `RiskMonitor.run_cycle()` refreshes env series every 6h so 7-day charts never age out. Verified: double-seed adds 0, age-backfill works, throttle works, charts return in-window points.
+7. **Rainfall/soil-moisture trends no-feed fix** (`821d1b1`): NASA POWER env fill is now a **rolling refresh** - `seed_power_environment()` inserts only dates newer than each district's latest per-table record (idempotent), fresh districts skip network; new `NASA_REFRESH_HOURS=6` config; `RiskMonitor.run_cycle()` refreshes env series every 6h so 7-day charts never age out. Verified: double-seed adds 0, age-backfill works, throttle works, charts return in-window points.
+8. **Session handoff doc** (`a853535`): created `SESSION_HISTORY.md` and pushed it so work continues from another device.
+9. **Move off Railway** (`d60c439` + Render/Aiven setup): DB from Neon to **Aiven PostgreSQL**; backend to **Render**; `frontend/vercel.json` rewrites `/api/*`+`/media/*` to the new Render service. Login issue after migration was an **empty Aiven DB** (no users) - probed and created `probe@landslide.dev / TempPass123!` as first super_admin.
+10. **Create-account toggle** (`8515527`): `Login.tsx` gains "Create account" self-registration (first registered user = super_admin); i18n keys already existed. User's real admin verified live: `antokingsly07@gmail.com / milkbiscuit`.
+11. **Mobile drawer z-index fix** (`4e4b333`): drawer overlay + alerts dropdown `z-[1001]`, alert toast `z-[1100]` (above Leaflet's z-400-1000).
+12. **Open-Meteo 429 fix** (`7b4826b`): `terrain_service.py` rewritten (global throttle, chunked `_MAX_PER_REQUEST=40`, dedupe, retry w/ backoff honoring `Retry-After`; `get_terrain_many()`); `seed_db.py::seed_terrain` one batched sweep. Verified 46/46 terrain rows, 0 nulls.
+13. **News-incident geo + dashboard KPI fix** (`046dbb1`, latest): all 29 live auto-news incidents had **NULL district_id/lat/lon** (created in a first-boot race before reference geo was seeded; URL-dedupe froze them geo-less), so GIS map + dashboard KPIs were empty while WS toasts still fired. Fix adds `reconcile_news_geo()` in `news_service.py` (backfills geo for auto-news incidents missing district + syncs their `news_report` alerts on every news cycle) and `summary()` no longer excludes null-district rows from global KPIs (rfilter `true()` when no district selected). Verified locally (geo restored, alert synced, active_incidents 0->1) and live (UI now shows lists, KPIs non-zero).
 
 ## Full git history (main, `git log --oneline`)
 ```
+046dbb1 fix: backfill geo for geo-less auto-news incidents; count unresolved rows in dashboard KPIs
+748a273 trigger: rerun Render real-data deployment
+7b4826b Fix Open-Meteo 429: throttle + batch terrain seeding
+4e4b333 Mobile drawer/top-layer z-index fix
+8515527 Add create-account toggle to login
+d60c439 Switch deploy target from Railway to Render
+a853535 Add session handoff doc
 821d1b1 Keep rainfall/soil-moisture trends fed with rolling NASA POWER refresh
 39b2c05 Emergency priorities: show district name instead of Unknown
 487e98e Emergency response: show reasons derived from each incident
@@ -41,12 +55,10 @@ b691455 Fix config indentation for NEWS_ROAD_STATUS_ENABLED
 ```
 
 ## Current state (important - carry this over)
-- `git status` shows **one uncommitted change: `frontend/src/components/Layout.tsx`** - the **mobile drawer/top-layer z-index fix** (foil Leaflet's z-400-1000):
-  - drawer overlay `z-50` -> **`z-[1001]`**
-  - alert-toast `z-[60]` -> **`z-[1100]`**
-  - alerts dropdown `z-50` -> **`z-[1001]`**
-  - Build verify (`npm run build`) + commit + push is **pending** (interrupted mid-flight).
-- Untracked root `package-lock.json` - leave out of commits.
+- Last push `046dbb1`; `git status` clean except the untracked root `package-lock.json` (leave out of commits).
+- Live verified via Vercel proxy (frontend host) AND direct Render: `/api/v1/incidents` + `/alerts?status=active` return data; dashboard summary non-zero. Deployed frontend bundle is current (contains recent Login + z-index changes).
+- Reference geo resolves news text correctly locally AND in the new backfill path. The first-boot race that geo-stripped old incidents should not recur (reference geo is seeded before the news monitor's first cycle under normal startup).
+- Watch Render logs for "Backfilled geo for N auto-news incident(s)." on the first news cycle after a fresh-DB boot.
 - `SESSION_HISTORY.md` (this file) is intentionally tracked.
 
 ## Local environment & workflow notes
@@ -64,9 +76,9 @@ b691455 Fix config indentation for NEWS_ROAD_STATUS_ENABLED
 - NASA POWER currently lags ~2 days; charts show up to today-2 and refresh via monitor.
 - Bootstrap super admin: `ensure_bootstrap_admin()` from `BOOTSTRAP_ADMIN_*` env (remote removed demo-login buttons).
 - Real-time WebSocket `/ws/alerts` (JWT in query param); `useRealtimeAlerts` toast in Layout.
+- Vercel proxy works (tested live through the frontend host). If backend URL ever changes, update `frontend/vercel.json` rewrites AND re-check Vercel env for a stale `VITE_API_URL`.
 
 ## Suggested next moves (when landing on the new device)
 1. Clone repo, recreate `backend/.venv` if needed, `npm install` in `frontend/`.
-2. Finish the pending **Layout.tsx z-index fix**: `cd frontend && npm run build`, commit, push.
-3. If relevant again: watch **Render logs** for "Seeded ... NASA POWER environmental records" to confirm trend backfill.
-4. Optional future work (discussed, not done): **Option B** - blend live sensor readings (rain_gauge/soil_moisture types) into the two trend charts for a near-real-time feed.
+2. **Optional (offered, not implemented):** admin delete-user/role endpoint to remove the probe admin `probe@landslide.dev` (and generally manage users).
+3. Watch **Render logs** for the news-cycle backfill line to confirm geo healing on the next cycle after fresh DB boots.
