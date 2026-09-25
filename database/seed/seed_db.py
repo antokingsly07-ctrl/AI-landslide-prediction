@@ -49,7 +49,7 @@ from app.models.risk import (
     SystemConfig,
 )
 from app.services.nasa_power_service import get_daily_series, get_recent
-from app.services.terrain_service import get_terrain
+from app.services.terrain_service import get_terrain_many
 
 
 def utcnow():
@@ -197,7 +197,12 @@ def ensure_geo(db: Session) -> tuple[dict[str, State], dict[tuple, District], li
 
 
 def seed_terrain(db: Session, district_objs: dict, villages: list[Village]) -> int:
-    """Real SRTM elevation/slope for every district and village."""
+    """Real SRTM elevation/slope for every district and village.
+
+    Uses a single batched sweep (few HTTP calls) instead of one request per
+    point, so keyless Open-Meteo rate limits (429) are avoided and retried
+    gracefully.
+    """
     if db.scalar(select(TerrainData).limit(1)):
         return 0
     points = []
@@ -205,20 +210,23 @@ def seed_terrain(db: Session, district_objs: dict, villages: list[Village]) -> i
         points.append((di.name, di.latitude, di.longitude, di))
     for v in villages:
         points.append((v.name, v.latitude, v.longitude, v))
+    try:
+        results = get_terrain_many([(lat, lon) for _, lat, lon, _ in points])
+    except Exception as exc:  # pragma: no cover - network failure
+        print(f"Terrain batch fetch failed: {exc}")
+        return 0
     count = 0
-    for name, lat, lon, ref in points:
-        try:
-            t = get_terrain(lat, lon)
-            db.add(TerrainData(
-                latitude=lat, longitude=lon,
-                district_id=ref.id if isinstance(ref, District) else ref.district_id,
-                slope_deg=t["slope_deg"], elevation_m=t["elevation_m"],
-                aspect=t["aspect"], curvature=0.0, land_cover="unknown",
-                geology="unknown", distance_to_roads_m=0.0,
-            ))
-            count += 1
-        except Exception as exc:  # pragma: no cover - network failure
-            print(f"Terrain fetch skipped for {name}: {exc}")
+    for (name, lat, lon, ref), t in zip(points, results):
+        if t is None:
+            continue
+        db.add(TerrainData(
+            latitude=lat, longitude=lon,
+            district_id=ref.id if isinstance(ref, District) else ref.district_id,
+            slope_deg=t["slope_deg"], elevation_m=t["elevation_m"],
+            aspect=t["aspect"], curvature=0.0, land_cover="unknown",
+            geology="unknown", distance_to_roads_m=0.0,
+        ))
+        count += 1
     db.commit()
     print(f"Seeded {count} real SRTM terrain rows.")
     return count
