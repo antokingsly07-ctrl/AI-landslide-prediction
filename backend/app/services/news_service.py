@@ -260,10 +260,44 @@ def diagnose_news(db: Session) -> dict:
     }
 
 
+def reconcile_news_geo(db: Session) -> int:
+    """Backfill lat/lon/district for auto-news incidents created before the
+    reference geo was seeded (first-boot race) and sync their news alerts."""
+    changed = 0
+    rows = db.scalars(select(Incident).where(
+        Incident.source == "auto_news",
+        Incident.district_id.is_(None),
+        Incident.reported_at >= _now() - timedelta(days=30),
+    )).all()
+    for inc in rows:
+        loc = _resolve_location(db, inc.description or "")
+        if not loc:
+            continue
+        inc.latitude = loc["latitude"]
+        inc.longitude = loc["longitude"]
+        inc.district_id = loc["district_id"]
+        db.add(inc)
+        for a in db.scalars(select(Alert).where(
+            Alert.alert_type == "news_report",
+            Alert.district_id.is_(None),
+        )).all():
+            a.district_id = inc.district_id
+            if a.latitude is None:
+                a.latitude = inc.latitude
+                a.longitude = inc.longitude
+            db.add(a)
+        changed += 1
+    if changed:
+        db.commit()
+        print(f"Backfilled geo for {changed} auto-news incident(s).")
+    return changed
+
+
 def process_news_incidents(db: Session) -> int:
     """Fetch recent news, auto-create new incidents once per article URL."""
     if not settings.NEWS_ENABLED:
         return 0
+    reconcile_news_geo(db)
     seen = _read_seen(db)
     cutoff = _now() - timedelta(hours=settings.NEWS_TIMESPAN_HOURS)
     created = 0

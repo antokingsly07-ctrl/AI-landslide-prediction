@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import Date, cast, func, select, true
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -45,7 +45,9 @@ def summary(
     user: User = Depends(get_current_user),
 ):
     def rfilter(col):
-        return col == district_id if district_id else col.isnot(None)
+        # Global view counts everything (including rows whose district is not
+        # yet resolved); a selected district narrows to that district only.
+        return col == district_id if district_id else true()
 
     critical = db.scalar(select(func.count(RiskZone.id)).where(
         RiskZone.risk_level == "CRITICAL", rfilter(RiskZone.district_id)
