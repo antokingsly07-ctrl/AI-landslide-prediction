@@ -142,7 +142,7 @@ export default function Layout() {
   return (
     <div className="flex h-full min-h-screen">
       {toast && (
-        <div className="fixed top-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border-2 border-red-200 rounded-xl shadow-2xl p-4 animate-in">
+        <div className="fixed top-4 right-4 z-[1100] w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border-2 border-red-200 rounded-xl shadow-2xl p-4 animate-in">
           <div className="flex items-start gap-2">
             <span className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">!</span>
             <div className="min-w-0">
@@ -196,7 +196,7 @@ export default function Layout() {
                 )}
               </button>
               {showAlerts && (
-                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto">
+                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] md:max-w-none bg-white border border-slate-200 rounded-xl shadow-lg z-[1001] max-h-96 overflow-y-auto">
                   <div className="px-4 py-3 border-b font-semibold text-sm">
                     {t("alert.title")} ({alerts.length})
                   </div>
@@ -230,7 +230,7 @@ export default function Layout() {
       </div>
 
       {menuOpen && (
-        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true">
+        <div className="md:hidden fixed inset-0 z-[1001]" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/50" onClick={closeMenu} />
           <aside className="absolute left-0 top-0 bottom-0 w-64 max-w-[85vw] bg-slate-900 text-slate-100 flex flex-col shadow-2xl">
             {navContent}
