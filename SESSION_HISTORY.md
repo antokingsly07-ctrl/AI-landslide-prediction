@@ -4,13 +4,13 @@
 
 ## Project identity
 - **Repo:** `github.com/antokingsly07-ctrl/AI-landslide-prediction.git` (branch `main`, auto-deploy on push)
-- **Backend:** FastAPI on **Railway** -> `https://ai-landslide-prediction-production.up.railway.app`
+- **Backend:** FastAPI on **Render** -> `https://ai-landslide-prediction-n4kk.onrender.com`
 - **Frontend:** React PWA on **Vercel** (proxies `/api/*` + `/media/*` to Railway via `frontend/vercel.json`; no `VITE_API_URL` needed)
 - **API docs:** `/docs`, `/redoc`, `/openapi.json`; API prefix `/api/v1`
 - Product: AI Landslide Early Warning & Monitoring Platform for North-Eastern India (Meghalaya/Assam focus). Global map, dashboards, ML risk, news-driven incidents, field reports, roads, sensors, emergency priorities, PWA offline sync.
 
 ## Tech stack (summary)
-- Backend: Python 3.11, FastAPI 0.115, Uvicorn, SQLAlchemy 2.0, Pydantic v2 + pydantic-settings, PostgreSQL (psycopg3, Railway) / SQLite (dev), python-jose HS256 JWT, passlib/bcrypt, XGBoost 2.1.3 + scikit-learn + pandas + numpy (risk model), httpx (external providers: NASA POWER, Open-Meteo/SRTM, Planetary Computer, Google News RSS/GDELT, OpenWeather/WeatherAPI/IMD).
+- Backend: Python 3.11, FastAPI 0.115, Uvicorn, SQLAlchemy 2.0, Pydantic v2 + pydantic-settings, PostgreSQL (**Aiven**) via psycopg3 / SQLite (dev), python-jose HS256 JWT, passlib/bcrypt, XGBoost 2.1.3 + scikit-learn + pandas + numpy (risk model), httpx (external providers: NASA POWER, Open-Meteo/SRTM, Planetary Computer, Google News RSS/GDELT, OpenWeather/WeatherAPI/IMD).
 - Frontend: React 18 + TypeScript 5.7 + Vite 6 + Tailwind 3, react-router-dom v6, zustand, axios, leaflet/react-leaflet, recharts, i18next (en/as/bn/hi/ta), vite-plugin-pwa + idb (IndexedDB offline sync), vitest.
 - Key dirs: `backend/app/{api/v1/endpoints,core,db,models,services,tasks,ml}`, `database/seed/`, `frontend/src/{pages,components,store,hooks,lib}`.
 
@@ -56,7 +56,7 @@ b691455 Fix config indentation for NEWS_ROAD_STATUS_ENABLED
 - Dev DB `landslide_dev.db` (local) is **stale** vs. models (`no such column: incidents.source`) - use a fresh temp SQLite DB for verification: `DATABASE_URL=sqlite:///C:/Users/user/AppData/Local/Temp/opencode/<name>.db`, then `init_db()` + `seed(db)` + `py_compile` checks.
 - Backend run: `backend\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000` (from repo root, PYTHONPATH set) or via Dockerfile `python:3.11-slim` + libgomp1 on Railway.
 - Rebase workflow: `git rebase origin/main`; use `GIT_EDITOR="true"` for `git rebase --continue` (else the editor hangs the session); resolve conflicts manually, keep remote's newer decisions.
-- Push = auto-deploy: Railway backend + Vercel frontend. C: drive low - avoid heavy pip/npm installs.
+- Push = auto-deploy: Vercel frontend + Render backend (Render deploys from the GitHub branch you attached). `DATABASE_URL` on Render points at **Aiven PostgreSQL** (add `sslmode=require` to the connection string; psycopg3 handles it). C: drive low - avoid heavy pip/npm installs.
 
 ## Known facts / gotchas
 - New real-data seed (`database/seed/seed_db.py`, ~870 lines) creates **no incidents directly** - incidents/emergency responses enter via the news pipeline in production. Emergency page fills as those stream in.
@@ -68,5 +68,5 @@ b691455 Fix config indentation for NEWS_ROAD_STATUS_ENABLED
 ## Suggested next moves (when landing on the new device)
 1. Clone repo, recreate `backend/.venv` if needed, `npm install` in `frontend/`.
 2. Finish the pending **Layout.tsx z-index fix**: `cd frontend && npm run build`, commit, push.
-3. If relevant again: watch Railway startup logs for "Seeded ... NASA POWER environmental records" to confirm trend backfill.
+3. If relevant again: watch **Render logs** for "Seeded ... NASA POWER environmental records" to confirm trend backfill.
 4. Optional future work (discussed, not done): **Option B** - blend live sensor readings (rain_gauge/soil_moisture types) into the two trend charts for a near-real-time feed.
