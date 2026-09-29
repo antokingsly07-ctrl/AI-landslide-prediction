@@ -644,8 +644,6 @@ Instead of waiting for a disaster to happen, the platform aims to help stakehold
 
 This project is developed for educational, innovation, and demonstration purposes.
 
-Add the appropriate open-source license here if the project is intended for public distribution.
-
 ---
 
 ## ⭐ Keywords
